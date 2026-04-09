@@ -22,7 +22,7 @@ The experiment must be designed to catch these, not hide them.
 - **sentence-transformers** with `all-MiniLM-L6-v2` (384-dim, fast, no API)
 - **numpy** for the mutation math
 - **SQLite** via stdlib `sqlite3` for metadata (no ORM, raw SQL)
-- **BEIR** for benchmark datasets — start with `nfcorpus` (small, has near-duplicates)
+- **LongMemEval** (S variant) for benchmark data — conversation memory with timestamped sessions, via HuggingFace `datasets`
 - **matplotlib** for result plots — no seaborn, no plotly
 - **pytest** for tests
 
@@ -45,7 +45,7 @@ gc-memory/
 ├── experiments/
 │   ├── run_experiment.py  # the headline script: runs all 3 arms, saves results
 │   ├── analyze.py         # loads results JSON, produces plots
-│   └── data_prep.py       # downloads and prepares NFCorpus
+│   └── data_prep.py       # downloads and prepares LongMemEval
 ├── tests/
 │   ├── test_mutation.py
 │   ├── test_store.py
@@ -186,15 +186,15 @@ Every magic number lives here. If you find yourself hardcoding a number elsewher
 In `experiments/run_experiment.py` — this is the file I'll actually run.
 
 ### Setup
-1. Download NFCorpus via BEIR (cache in `./data/`)
-2. Embed all corpus documents with `all-MiniLM-L6-v2`, normalize to unit vectors
+1. Download LongMemEval S variant via HuggingFace `datasets` (cache in `./data/`)
+2. Embed all chat sessions with `all-MiniLM-L6-v2`, normalize to unit vectors
 3. Build three stores with identical initial state:
    - **Static**: no mutation, no decay, no tier transitions (baseline)
    - **Random**: mutation with fixed `sigma = 0.025` regardless of affinity (control — tests whether the adaptive rate matters)
    - **GC**: full algorithm as specified above
 
 ### Query schedule
-Generate 10,000 queries from NFCorpus's query set with Zipfian-like repetition: 20% of queries form a "hot set" that accounts for 70% of traffic. This simulates real usage where a few topics dominate. Seed the RNG from config.
+Generate 10,000 queries from LongMemEval's question set with Zipfian-like repetition: 20% of queries form a "hot set" that accounts for 70% of traffic. This simulates real usage where a few topics dominate. Seed the RNG from config.
 
 ### Per-query loop (same for all three arms)
 ```
@@ -211,7 +211,7 @@ for step in range(n_queries):
 ```
 
 ### Metrics logged every 500 steps
-- **NDCG@10** against ground-truth relevance judgments from NFCorpus
+- **NDCG@10** against ground-truth relevance judgments from LongMemEval
 - **Recall@10**
 - **Mean diversity** (average pairwise cosine distance, 1000-pair sample)
 - **Anchor drift** (mean `1 - cos(embedding, original_embedding)` over 100 random entries)
@@ -308,7 +308,7 @@ Build the smallest thing that answers the question. If it works, v2 can be more 
 
 When done, I should be able to:
 1. `git clone <repo> && cd gc-memory && uv venv && uv pip install -e .`
-2. `uv run python experiments/data_prep.py` (downloads NFCorpus, ~5 min)
+2. `uv run python experiments/data_prep.py` (downloads LongMemEval, ~5 min)
 3. `uv run python experiments/run_experiment.py` (runs all three arms, ~30-60 sec after data prep)
 4. `uv run python experiments/analyze.py` (produces plots and summary table)
 5. Read the summary and immediately know whether the thesis survived.

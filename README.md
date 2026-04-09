@@ -30,7 +30,7 @@ The experiment is designed to detect three critical failure modes:
 ```bash
 git clone <repo> && cd gc-memory
 uv venv && uv pip install -e .
-uv run python experiments/data_prep.py      # downloads NFCorpus, ~5 min
+uv run python experiments/data_prep.py      # downloads LongMemEval, ~5 min
 uv run python experiments/run_experiment.py  # runs all three arms, ~30-60 sec
 uv run python experiments/analyze.py         # produces plots and summary table
 ```
@@ -49,7 +49,6 @@ uv run python experiments/analyze.py         # produces plots and summary table
 - FAISS (faiss-cpu) for ANN
 - sentence-transformers with all-MiniLM-L6-v2 (384-dim)
 - numpy for mutation math
-- SQLite via stdlib sqlite3 for metadata
-- BEIR with NFCorpus for benchmark data
+- LongMemEval (S variant) for benchmark data via HuggingFace datasets
 - matplotlib for result plots
 - pytest for tests

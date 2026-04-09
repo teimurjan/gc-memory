@@ -7,7 +7,7 @@ Research prototype testing germinal-center-inspired adaptive mutation-selection 
 - Python 3.12, managed with `uv`
 - FAISS (faiss-cpu) for ANN, sentence-transformers (all-MiniLM-L6-v2, 384-dim)
 - numpy for mutation math, matplotlib for plots, pytest for tests
-- BEIR with NFCorpus for benchmark data
+- LongMemEval (S variant) for benchmark data via HuggingFace datasets
 
 ## layout
 
@@ -27,7 +27,7 @@ uv venv --python 3.12 && uv pip install -e .
 uv run pytest tests/ -v                          # run tests
 uv run pytest --cov=gc_memory --cov-report=term-missing tests/  # with coverage
 uv run mypy --strict src/gc_memory/               # type check
-uv run python experiments/data_prep.py             # download + embed NFCorpus (~5 min)
+uv run python experiments/data_prep.py             # download + embed LongMemEval (~5 min)
 uv run python experiments/run_experiment.py        # run 3-arm experiment (~45 sec)
 uv run python experiments/analyze.py               # generate plots + summary
 ```
@@ -50,7 +50,6 @@ uv run python experiments/analyze.py               # generate plots + summary
 
 ## experiment status
 
-Run 2 (with fixed decay) result: **NEGATIVE** by pre-committed criteria.
-- GC beats Random by +3.3% (adaptive rate works)
-- GC loses to Static by -2.8% (mutation hurts pretrained embeddings)
-- Root cause: query-as-teacher is circular for models trained on query similarity
+Switched benchmark from NFCorpus to LongMemEval (conversation memory, 19k sessions, 500 questions).
+Previous NFCorpus results (Run 2, fixed decay): NEGATIVE. GC +3.3% vs Random, -2.8% vs Static.
+LongMemEval run: pending.

@@ -38,16 +38,16 @@ def load_prepared_data() -> tuple[
     dict[str, str],
 ]:
     """Load pre-computed embeddings and metadata."""
-    data = np.load(str(DATA_DIR / "nfcorpus_prepared.npz"), allow_pickle=True)
+    data = np.load(str(DATA_DIR / "longmemeval_prepared.npz"), allow_pickle=True)
     corpus_ids = list(data["corpus_ids"])
     corpus_embeddings = data["corpus_embeddings"].astype(np.float32)
     query_ids = list(data["query_ids"])
     query_embeddings = data["query_embeddings"].astype(np.float32)
 
-    with open(DATA_DIR / "nfcorpus_qrels.json") as f:
+    with open(DATA_DIR / "longmemeval_qrels.json") as f:
         qrels = json.load(f)
 
-    with open(DATA_DIR / "nfcorpus_corpus.json") as f:
+    with open(DATA_DIR / "longmemeval_corpus.json") as f:
         corpus_content = json.load(f)
 
     return corpus_ids, corpus_embeddings, query_ids, query_embeddings, qrels, corpus_content
