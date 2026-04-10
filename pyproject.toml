@@ -11,6 +11,7 @@ dependencies = [
     "faiss-cpu>=1.7",
     "sentence-transformers>=2.0",
     "numpy>=1.24",
+    "beir>=2.0",
     "datasets>=2.0",
     "matplotlib>=3.7",
     "tqdm>=4.60",
@@ -26,7 +27,7 @@ packages = ["src/gc_memory"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["faiss", "datasets"]
+module = ["faiss", "datasets", "beir.*", "torch", "torch.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

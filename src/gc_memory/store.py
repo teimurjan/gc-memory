@@ -9,21 +9,11 @@ import numpy.typing as npt
 
 from gc_memory.config import Config
 from gc_memory.entry import MemoryEntry, Tier, effective_embedding
-from gc_memory.mutation import (
-    compute_sigma,
-    generate_adapter_mutants,
-    select_best_adapter,
-)
 
 
 class GCMemoryStore:
-    """Germinal center memory store with cross-encoder guided adapter mutation.
-
-    The cross-encoder breaks the fitness circularity: it scores (query, content)
-    pairs using full text, providing information the bi-encoder doesn't encode.
-    Mutation direction is driven by disagreement between bi-encoder rank and
-    cross-encoder relevance.
-    """
+    """Base memory store with FAISS retrieval, cross-encoder reranking,
+    tier lifecycle, and time decay. Subclasses implement mutation."""
 
     def __init__(
         self,
@@ -31,17 +21,18 @@ class GCMemoryStore:
         config: Config,
         rng: np.random.Generator,
         cross_encoder: Any = None,
+        bi_encoder: Any = None,
     ) -> None:
         self.entries: dict[str, MemoryEntry] = {e.id: e for e in entries}
         self.config = config
         self.rng = rng
         self.cross_encoder = cross_encoder
+        self.bi_encoder = bi_encoder
         self._id_order: list[str] = []
         self._index: faiss.IndexFlatIP = faiss.IndexFlatIP(0)
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
-        """Rebuild FAISS index from effective embeddings, excluding apoptotic."""
         active = [
             (eid, e) for eid, e in self.entries.items() if e.tier != Tier.APOPTOTIC
         ]
@@ -59,7 +50,6 @@ class GCMemoryStore:
         query_text: str,
         k: int,
     ) -> list[tuple[MemoryEntry, float]]:
-        """Retrieve top-k: bi-encoder fetch → cross-encoder rerank → tier weight."""
         if self._index.ntotal == 0:
             return []
 
@@ -67,7 +57,6 @@ class GCMemoryStore:
         query_2d = query.reshape(1, -1).astype(np.float32)
         distances, indices = self._index.search(query_2d, n_fetch)
 
-        # Gather candidates (exclude apoptotic at index level already)
         candidates: list[tuple[MemoryEntry, float]] = []
         for dist, idx in zip(distances[0], indices[0]):
             if idx < 0:
@@ -76,7 +65,6 @@ class GCMemoryStore:
             entry = self.entries[eid]
             candidates.append((entry, float(dist)))
 
-        # Cross-encoder rerank if available
         if self.cross_encoder is not None and candidates:
             pairs = [(query_text, e.content) for e, _ in candidates]
             xenc_scores = self.cross_encoder.predict(pairs)
@@ -102,20 +90,27 @@ class GCMemoryStore:
         retrieved: list[tuple[MemoryEntry, float]],
         step: int,
     ) -> None:
-        """Post-retrieval: bookkeeping, cross-encoder guided mutation, tier transitions."""
         for entry, _ in retrieved:
             entry.retrieval_count += 1
             entry.last_retrieved_step = step
 
         self._update_affinities(query_text, retrieved)
-        mutated = self._mutate_gc_entries(query, query_text, retrieved)
+        mutated = self._mutate(query, query_text, retrieved)
         changed = self._check_tier_transitions(step)
 
         if mutated or changed:
             self._rebuild_index()
 
+    def _mutate(
+        self,
+        query: npt.NDArray[np.float32],
+        query_text: str,
+        retrieved: list[tuple[MemoryEntry, float]],
+    ) -> bool:
+        """Override in subclasses for specific mutation strategies."""
+        return False
+
     def run_decay(self, step: int) -> None:
-        """Time decay: affinity *= exp(-lambda * interval / 100) per period."""
         lam = self.config.lambda_decay
         interval = self.config.decay_interval
         decay_factor = math.exp(-lam * interval / 100.0)
@@ -145,85 +140,18 @@ class GCMemoryStore:
         query_text: str,
         retrieved: list[tuple[MemoryEntry, float]],
     ) -> None:
-        """Update affinity using cross-encoder scores (or retrieval score as fallback)."""
         alpha = self.config.alpha
         if self.cross_encoder is not None:
             pairs = [(query_text, e.content) for e, _ in retrieved]
             xenc_scores = self.cross_encoder.predict(pairs)
             for (entry, _), xscore in zip(retrieved, xenc_scores):
-                # Sigmoid to normalize logit to [0, 1]
                 normalized = 1.0 / (1.0 + math.exp(-float(xscore)))
                 entry.affinity = (1.0 - alpha) * entry.affinity + alpha * normalized
         else:
             for entry, score in retrieved:
                 entry.affinity = (1.0 - alpha) * entry.affinity + alpha * max(0.0, min(1.0, score))
 
-    def _get_sigma(self, affinity: float) -> float:
-        """Compute mutation sigma. Override in baselines for fixed rate."""
-        return float(self.config.sigma_0 * (1.0 - affinity) ** self.config.gamma)
-
-    def _mutate_gc_entries(
-        self,
-        query: npt.NDArray[np.float32],
-        query_text: str,
-        retrieved: list[tuple[MemoryEntry, float]],
-    ) -> bool:
-        """Cross-encoder guided adapter mutation.
-
-        The cross-encoder score decides IF and HOW to mutate:
-        - High xenc + low bi-enc rank → under-retrieved, mutate toward query
-        - Low xenc + high bi-enc rank → false positive, mutate away from query
-        - High xenc + high bi-enc rank → correctly retrieved, boost affinity only
-        """
-        any_mutated = False
-        cfg = self.config
-
-        # Get cross-encoder scores for retrieved entries
-        gc_entries = [(entry, score) for entry, score in retrieved if entry.tier == Tier.GC]
-        if not gc_entries:
-            return False
-
-        if self.cross_encoder is not None:
-            pairs = [(query_text, e.content) for e, _ in gc_entries]
-            xenc_scores = self.cross_encoder.predict(pairs)
-        else:
-            # Without cross-encoder, assume all retrieved entries are relevant
-            xenc_scores = np.ones(len(gc_entries)) * (cfg.xenc_relevant + 1.0)
-
-        for (entry, bienc_rank_score), xenc_score in zip(gc_entries, xenc_scores):
-            xenc_score_f = float(xenc_score)
-
-            # Determine mutation direction from disagreement
-            if xenc_score_f > cfg.xenc_relevant:
-                # Cross-encoder says relevant: mutate toward query
-                toward = True
-            elif xenc_score_f < cfg.xenc_irrelevant:
-                # Cross-encoder says strongly irrelevant: mutate away
-                toward = False
-            else:
-                # Ambiguous: skip mutation for this entry
-                continue
-
-            sigma = self._get_sigma(entry.affinity)
-            adapter_mutants, eff_mutants = generate_adapter_mutants(
-                entry.adapter, entry.base_embedding, query,
-                sigma, cfg.n_mutants, cfg.max_adapter_norm, self.rng,
-                toward_query=toward,
-            )
-
-            best_idx = select_best_adapter(
-                query, entry.embedding, adapter_mutants, eff_mutants, cfg.delta,
-            )
-            if best_idx is not None:
-                entry.adapter = adapter_mutants[best_idx].copy()
-                entry.embedding = eff_mutants[best_idx].copy()
-                entry.generation += 1
-                any_mutated = True
-
-        return any_mutated
-
     def _check_tier_transitions(self, step: int) -> bool:
-        """Check and apply tier transitions for all entries."""
         changed = False
         cfg = self.config
         for entry in self.entries.values():

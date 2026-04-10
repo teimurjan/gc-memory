@@ -21,6 +21,8 @@ class MemoryEntry:
     base_embedding: npt.NDArray[np.float32]
     embedding: npt.NDArray[np.float32]
     adapter: npt.NDArray[np.float32]
+    session_id: str = ""
+    turn_idx: int = 0
     affinity: float = 0.5
     retrieval_count: int = 0
     generation: int = 0
@@ -44,6 +46,8 @@ def create_entry(
     entry_id: str,
     content: str,
     embedding: npt.NDArray[np.float32],
+    session_id: str = "",
+    turn_idx: int = 0,
 ) -> MemoryEntry:
     """Create a MemoryEntry with zero adapter. Effective embedding = base embedding."""
     norm = np.linalg.norm(embedding)
@@ -57,4 +61,6 @@ def create_entry(
         base_embedding=base.copy(),
         embedding=base.copy(),
         adapter=np.zeros(dim, dtype=np.float32),
+        session_id=session_id,
+        turn_idx=turn_idx,
     )

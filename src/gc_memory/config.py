@@ -7,19 +7,26 @@ from dataclasses import dataclass
 class Config:
     # Retrieval
     k: int = 10
-    k_fetch: int = 30  # fetch more from FAISS for cross-encoder reranking
+    k_fetch: int = 30
     tier_weight_memory: float = 1.15
-    # Affinity (updated by cross-encoder score, not bi-encoder cosine)
+    # Affinity
     alpha: float = 0.2
-    # Adapter mutation
+    # Adapter mutation (shared by MLP and legacy Gaussian)
     sigma_0: float = 0.05
     gamma: float = 2.0
     n_mutants: int = 5
     delta: float = 0.005
     max_adapter_norm: float = 0.5
-    # Cross-encoder disagreement thresholds
-    xenc_relevant: float = 0.0  # ms-marco scores are logits, >0 means relevant
-    xenc_irrelevant: float = -4.0  # strongly irrelevant
+    # MLP adapter
+    mlp_hidden: int = 128
+    mlp_lr: float = 1e-3
+    # Cross-encoder thresholds
+    xenc_relevant: float = 0.0
+    xenc_irrelevant: float = -4.0
+    # Segmentation
+    split_affinity_threshold: float = 0.4
+    split_min_content_len: int = 200
+    merge_affinity_threshold: float = 0.6
     # Tier transitions
     promote_naive_threshold: int = 3
     promote_memory_affinity: float = 0.75
