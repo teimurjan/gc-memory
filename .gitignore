@@ -10,3 +10,5 @@ dist/
 .coverage
 .pytest_cache/
 writeup/
+.memsearch/
+.claude/

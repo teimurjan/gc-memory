@@ -14,10 +14,10 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-from sentence_transformers import CrossEncoder, SentenceTransformer  # type: ignore[import-untyped]
+from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 from tqdm import tqdm  # type: ignore[import-untyped]
 
-from gc_memory.baselines import MLPAdapterStore, SegmentationStore, StaticStore
+from gc_memory.baselines import NoGraphStore, StaticStore
 from gc_memory.config import Config
 from gc_memory.entry import MemoryEntry, Tier, create_entry
 from gc_memory.metrics import (
@@ -140,6 +140,7 @@ def log_metrics(
         "tier_distribution": {t.value: c for t, c in tier_dist.items()},
         "mean_generation": mean_gen, "mean_gc_affinity": mean_gc_aff,
         "n_active": len(active_entries), "n_total": len(all_entries),
+        "graph_nodes": store.graph.num_nodes, "graph_edges": store.graph.num_edges,
     }
 
 
@@ -232,7 +233,7 @@ def run_dataset(dataset: str, bi_encoder: SentenceTransformer, xenc: CrossEncode
 
     arms_results: dict[str, dict[str, object]] = {}
 
-    print("\n--- Static + rerank ---")
+    print("\n--- Static (no graph, no updates) ---")
     s_rng = np.random.default_rng(config.random_seed)
     static_store = StaticStore(deep_copy_entries(base_entries), config, s_rng, cross_encoder=xenc)
     arms_results["static"] = run_arm(
@@ -240,29 +241,22 @@ def run_dataset(dataset: str, bi_encoder: SentenceTransformer, xenc: CrossEncode
         query_ids, query_embeddings, query_texts, qrels, config, s_rng,
     )
 
-    print("\n--- MLP adapter + rerank ---")
-    m_rng = np.random.default_rng(config.random_seed)
-    mlp_store = MLPAdapterStore(deep_copy_entries(base_entries), config, m_rng, cross_encoder=xenc)
-    arms_results["mlp"] = run_arm(
-        "mlp", mlp_store, query_schedule, query_id_to_idx,
-        query_ids, query_embeddings, query_texts, qrels, config, m_rng,
+    print("\n--- No-graph (rerank + tiers, no graph expansion) ---")
+    n_rng = np.random.default_rng(config.random_seed)
+    nograph_store = NoGraphStore(deep_copy_entries(base_entries), config, n_rng, cross_encoder=xenc)
+    arms_results["nograph"] = run_arm(
+        "nograph", nograph_store, query_schedule, query_id_to_idx,
+        query_ids, query_embeddings, query_texts, qrels, config, n_rng,
     )
-    if hasattr(mlp_store, 'train_steps') and mlp_store.train_steps > 0:
-        avg_loss = mlp_store.total_loss / mlp_store.train_steps
-        print(f"  MLP avg loss: {avg_loss:.4f} over {mlp_store.train_steps} steps")
 
-    print("\n--- Segmentation + rerank ---")
+    print("\n--- Graph GC (full: graph expansion + tiers + decay) ---")
     g_rng = np.random.default_rng(config.random_seed)
-    seg_store = SegmentationStore(
-        deep_copy_entries(base_entries), config, g_rng,
-        cross_encoder=xenc, bi_encoder=bi_encoder,
-    )
-    arms_results["segmentation"] = run_arm(
-        "seg", seg_store, query_schedule, query_id_to_idx,
+    gc_store = GCMemoryStore(deep_copy_entries(base_entries), config, g_rng, cross_encoder=xenc)
+    arms_results["gc"] = run_arm(
+        "gc", gc_store, query_schedule, query_id_to_idx,
         query_ids, query_embeddings, query_texts, qrels, config, g_rng,
     )
-    seg_total = len(seg_store.entries)
-    print(f"  Segmentation final entry count: {seg_total} (started at {len(base_entries)})")
+    print(f"  Graph: {gc_store.graph.num_nodes} nodes, {gc_store.graph.num_edges} edges")
 
     return {
         "dataset": dataset,
@@ -278,11 +272,10 @@ def main() -> None:
     parser.add_argument("--dataset", choices=["nfcorpus", "longmemeval"], required=True)
     args = parser.parse_args()
 
-    print("Loading models...")
-    bi_encoder = SentenceTransformer("all-MiniLM-L6-v2")
+    print("Loading cross-encoder...")
     xenc = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
-    results = run_dataset(args.dataset, bi_encoder, xenc)
+    results = run_dataset(args.dataset, None, xenc)
 
     RESULTS_DIR.mkdir(exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")

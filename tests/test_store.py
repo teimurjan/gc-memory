@@ -23,14 +23,13 @@ def config() -> Config:
 def _make_entry(
     entry_id: str, direction: np.ndarray, rng: np.random.Generator,
     tier: Tier = Tier.NAIVE, affinity: float = 0.5,
-    retrieval_count: int = 0, generation: int = 0,
+    retrieval_count: int = 0,
 ) -> MemoryEntry:
     v = direction.astype(np.float32)
     entry = create_entry(entry_id, f"content-{entry_id}", v)
     entry.tier = tier
     entry.affinity = affinity
     entry.retrieval_count = retrieval_count
-    entry.generation = generation
     return entry
 
 
@@ -105,13 +104,27 @@ class TestDecay:
         assert store.entries["a"].affinity == 0.8
 
 
-class TestBaseMutateIsNoop:
-    def test_base_store_no_mutation(self, config: Config, rng: np.random.Generator) -> None:
-        """Base GCMemoryStore._mutate returns False (no mutation)."""
-        entry = _make_entry("a", _basis_vector(0), rng, tier=Tier.GC)
+class TestGraphIntegration:
+    def test_graph_starts_empty(self, config: Config, rng: np.random.Generator) -> None:
+        entry = _make_entry("a", _basis_vector(0), rng)
         store = GCMemoryStore([entry], config, rng)
-        result = store._mutate(_basis_vector(0), "test", [(store.entries["a"], 1.0)])
-        assert result is False
+        assert store.graph.num_nodes == 0
+        assert store.graph.num_edges == 0
+
+    def test_graph_expands_retrieval(self, config: Config, rng: np.random.Generator) -> None:
+        """Manually add graph edges, verify expansion brings in neighbors."""
+        entries = [
+            _make_entry("a", _basis_vector(0), rng),
+            _make_entry("b", _basis_vector(1), rng),
+            _make_entry("c", _basis_vector(2), rng),
+        ]
+        store = GCMemoryStore(entries, config, rng)
+        # Manually add edge: a-c (c is not similar to query[0] but is a's neighbor)
+        store.graph.reinforce(["a", "c"], weight=5.0)
+        results = store.retrieve(_basis_vector(0), "test", k=10)
+        result_ids = [e.id for e, _ in results]
+        # "c" should appear because it's a graph neighbor of "a"
+        assert "c" in result_ids
 
 
 class TestUtilities:
