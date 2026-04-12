@@ -143,5 +143,49 @@ BM25 sparse keyword search added alongside FAISS dense vectors.
 - Text segmentation (destroys context, -46%)
 - MLP adapter (right direction, wrong magnitude, +0.4%)
 
+## Checkpoint 9: GC routing index (final attempt)
+
+Formalized the rescue cache as a proper GC-managed routing index. Query embeddings are clustered. Each cluster maintains entry associations with full tier lifecycle (naive → gc → memory). The routing index adds candidates on top of the static hybrid+xenc pipeline.
+
+| System | Hot NDCG |
+|--------|---------|
+| Static hybrid+xenc | 0.3680 |
+| + GC routing (2000 steps) | 0.3273 (-11%) |
+
+The routing index added noise candidates that diluted the cross-encoder pool. After 2000 steps with 4345 learned routes and 1763 memory-tier routes, retrieval quality was WORSE than the static pipeline.
+
+## Checkpoint 10: Integrity checks
+
+Independent integrity audit of all benchmark results:
+
+1. All systems evaluated on identical 200 queries with identical qrels
+2. All systems return exactly 10 results
+3. RRF + cross-encoder rerank = 0.3680 (identical to "gc-memory"). The cross-encoder IS the improvement, not the GC mechanism.
+4. No parameters were tuned on the eval set
+
+**Conclusion: the 0.3680 NDCG is entirely from hybrid BM25+vector+cross-encoder reranking. The GC mechanism contributed nothing to retrieval quality.**
+
+## What worked vs what didn't
+
+### Worked (for retrieval quality)
+- Cross-encoder reranking (+63% over bi-encoder alone)
+- BM25 hybrid retrieval (+76% over vector alone)
+- Combined hybrid+xenc (NDCG=0.3680, +167% over vector baseline)
+
+### Worked (for memory management, not retrieval quality)
+- Deduplication (+6.5% when applied as corpus preprocessing)
+- Tier lifecycle (stable memory management)
+- Affinity decay (handles stale entries)
+
+### Didn't work (for retrieval quality)
+- Direct embedding mutation (degrades pretrained embeddings)
+- Adapter mutation + co-retrieval centroid (washes out signal)
+- Co-relevance graph (too sparse on LongMemEval)
+- Text segmentation (destroys context)
+- MLP adapter (right direction, wrong magnitude)
+- GC routing index (adds noise to candidate pool)
+- Rescue cache (marginal gains, doesn't generalize)
+- Adaptive search depth (works but is just "increase k_fetch")
+
 ### Key insight
-The biological control loop (adaptive rate, tier lifecycle, decay) is sound engineering. The biological perturbation (random mutation of embeddings) is not. The winning system uses immune-system-inspired lifecycle management with modern IR techniques (BM25 + cross-encoder) instead of mutation.
+The biological control loop (adaptive rate, tier lifecycle, decay) is sound engineering for **memory management**. It is not useful for **retrieval quality**. Modern IR techniques (BM25 + cross-encoder reranking) are the right tool for retrieval. The GC mechanism's value is in lifecycle management: promoting frequently-used memories, decaying stale ones, deduplicating, and archiving unused entries. Future work should focus on this lifecycle layer rather than trying to improve retrieval quality.

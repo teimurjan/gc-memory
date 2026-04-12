@@ -60,15 +60,17 @@ uv run python benchmarks/run_benchmark.py
 
 LongMemEval S (200k turns, 500 questions, 200-query eval sample):
 
-| System | NDCG@10 | vs baseline |
-|--------|---------|-------------|
-| Vector only | 0.1376 | baseline |
-| BM25 only | 0.2420 | +76% |
-| Memsearch (BM25+vec RRF) | 0.2171 | +58% |
-| gc-memory (BM25+vec+xenc) | 0.3395 | +147% |
+| System | NDCG@10 |
+|--------|---------|
+| Vector only | 0.1376 |
+| BM25 only | 0.2420 |
+| Hybrid RRF (memsearch style) | 0.2171 |
+| **Hybrid + cross-encoder rerank** | **0.3680** |
+
+The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mechanism does not improve this number. Verified with integrity checks.
 
 ## research status
 
-The project started as a germinal center biology experiment. Direct embedding mutation, MLP adapters, text segmentation, and graph evolution were all tested. None beat the static baseline significantly. The winning approach is modern IR (BM25 hybrid + cross-encoder reranking + dedup) with bio-inspired lifecycle management (tiers + decay).
+10 approaches tested for improving retrieval quality with GC mechanism: all failed. The GC mechanism's value is in memory LIFECYCLE MANAGEMENT (tiers, decay, dedup), not retrieval quality. Hybrid+xenc is the retrieval answer. Future work: focus GC on lifecycle layer.
 
 Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)

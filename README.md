@@ -1,8 +1,8 @@
 # gc-memory
 
-A self-improving memory store for LLM agents. Combines BM25 + dense vector hybrid retrieval with cross-encoder reranking, adaptive search depth, and automatic deduplication.
+A memory store for LLM agents with hybrid retrieval and bio-inspired lifecycle management. Combines BM25 + dense vector retrieval with cross-encoder reranking, deduplication, and a germinal-center-inspired tier system for memory lifecycle.
 
-**+73% NDCG over static vector search on LongMemEval** (conversation memory benchmark, 200k turns).
+**NDCG@10 = 0.368 on LongMemEval** (+167% over vector-only baseline).
 
 ## Quick start
 
@@ -89,12 +89,14 @@ See [BENCHMARKS.md](BENCHMARKS.md) for results.
 
 ## How it compares
 
-| System | Approach | NDCG@10 | vs static |
-|--------|----------|---------|-----------|
-| Vector only (MiniLM) | Dense retrieval | 0.1376 | baseline |
-| BM25 only | Sparse keyword | 0.2420 | +75.9% |
-| Memsearch (BM25+vector RRF) | Hybrid, no reranking | 0.2171 | +57.8% |
-| **gc-memory** | **Hybrid + xenc + dedup** | **0.3395** | **+146.7%** |
+| System | Approach | NDCG@10 |
+|--------|----------|---------|
+| Vector only (MiniLM) | Dense retrieval | 0.1376 |
+| BM25 only | Sparse keyword | 0.2420 |
+| Hybrid BM25+vector RRF | Rank fusion, no reranker | 0.2171 |
+| **Hybrid + cross-encoder rerank** | **BM25 + vector + xenc** | **0.3680** |
+
+The retrieval quality comes from combining BM25 keyword matching with dense vector similarity, then reranking with a cross-encoder. This is a well-known IR technique. The GC mechanism provides memory lifecycle management (tiers, decay, dedup) but does not improve retrieval quality. See [BENCHMARKS.md](BENCHMARKS.md) for integrity checks.
 
 Measured on LongMemEval S variant (200k conversation turns, 500 evaluation questions).
 
@@ -117,6 +119,8 @@ research/             # Original GC mutation research code
 
 ## Research background
 
-This project started as an experiment porting the immune system's germinal center mechanism to vector memory. That approach (mutating embeddings directly) didn't beat static baselines. The research journey is documented in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
+This project started as an experiment porting the immune system's germinal center mechanism to vector memory. Eight approaches were tested: direct embedding mutation, adapter mutation, MLP adapters, text segmentation, co-relevance graphs, rescue caching, adaptive search depth, and GC routing indexes. None improved retrieval quality over the static hybrid+xenc baseline.
 
-What DID work: BM25 hybrid retrieval, cross-encoder reranking, adaptive search depth, and deduplication. These techniques compound to +73% over static vector search.
+What DID work for retrieval: BM25 hybrid retrieval + cross-encoder reranking (a standard IR technique).
+
+What the GC mechanism provides: memory lifecycle management (tier promotion, affinity decay, deduplication). This is useful for long-running agents but doesn't improve retrieval quality on static benchmarks. The full research journey is in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
