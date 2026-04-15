@@ -205,7 +205,7 @@ async def enrich_dataset(
     entries: list[tuple[str, str]],  # (entry_id, memory_text)
     output_path: Path,
     model: str = "claude-haiku-4-5",
-    concurrency: int = 20,
+    concurrency: int = 5,
     progress_every: int = 50,
 ) -> EnrichmentStats:
     """Enrich a list of memories, writing JSONL incrementally. Resumable.
@@ -238,7 +238,9 @@ async def enrich_dataset(
     print(f"Enriching {len(todo)} entries with {model} at concurrency={concurrency}...",
           flush=True)
 
-    client = AsyncAnthropic(max_retries=4)
+    # max_retries=8 absorbs 429 bursts when we briefly exceed per-minute quota;
+    # the SDK respects retry-after headers, so wall-clock rate converges to the limit.
+    client = AsyncAnthropic(max_retries=8)
     semaphore = asyncio.Semaphore(concurrency)
 
     # Open output in append mode, flush after each write

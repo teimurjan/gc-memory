@@ -60,8 +60,8 @@ def main() -> None:
                     help="Anthropic model (default: claude-haiku-4-5 — matches memsearch)")
     ap.add_argument("--max", type=int, default=None,
                     help="Limit number of entries to enrich (for smoke tests)")
-    ap.add_argument("--concurrency", type=int, default=20,
-                    help="Max concurrent API calls (default: 20)")
+    ap.add_argument("--concurrency", type=int, default=5,
+                    help="Max concurrent API calls (default: 5 — Haiku has 50 RPM limit)")
     ap.add_argument("--output", default="data/longmemeval_enriched.jsonl",
                     help="Output JSONL path")
     args = ap.parse_args()
