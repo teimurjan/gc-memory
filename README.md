@@ -1,8 +1,16 @@
 # gc-memory
 
-A memory store for LLM agents with hybrid retrieval and bio-inspired lifecycle management. Combines BM25 + dense vector retrieval with cross-encoder reranking, deduplication, and a germinal-center-inspired tier system for memory lifecycle.
+A memory store for LLM agents. Hybrid BM25 + dense retrieval, cross-encoder reranking, **clustered retrieval-induced forgetting**, and an **optional LLM enrichment layer** at write time.
 
-**NDCG@10 = 0.368 on LongMemEval** (+167% over vector-only baseline).
+On LongMemEval S (199,509 conversation turns, 500 questions, full-corpus NDCG@10):
+
+| Stage | NDCG@10 | vs baseline |
+|-------|---------|-------------|
+| Hybrid BM25 + vector + cross-encoder | 0.293 | — |
+| + clustered+gap RIF (checkpoint 13) | 0.312 | +6.5% |
+| + LLM enrichment, on covered queries | **0.473** | **+35%** |
+
+The enrichment gain is measured on the 75 queries for which the answer turns are enriched; overall numbers are diluted by uncovered queries. See [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Quick start
 
@@ -33,27 +41,39 @@ store.close()
 ```
 Query
   │
-  ├── FAISS top-30 (dense vector similarity, ~1ms)
-  ├── BM25 top-30 (sparse keyword match, ~5ms)
+  ├── FAISS top-30 (dense vector similarity)
+  ├── BM25 top-30 (sparse keyword match)
   │
-  └── Merge + dedup candidates
-          │
-          └── Cross-encoder rerank → top-k (~300ms)
+  └── Merge (RRF)
+        │
+        └── RIF suppression penalty (per-cluster, gap-based)
+              │
+              └── Cross-encoder rerank → top-k
                     │
-                    ├── If max score < threshold → deep search (k=200)
-                    │
-                    └── Update affinities, check tier transitions
+                    └── Update suppression state, affinities, tier
 ```
+
+**Optional write-time LLM enrichment layer** (`src/gc_memory/enrichment.py`): before indexing, each memory can be processed by an LLM (default `claude-haiku-4-5`) to produce a gist, 3 anticipated queries, entities, and temporal markers. All fields index alongside the original text; cross-encoder still scores against original. Attacks the vocabulary-mismatch failure mode.
+
+### Retrieval-induced forgetting (RIF)
+
+On each retrieval, entries that reach the candidate pool but lose to the cross-encoder accumulate a per-cluster suppression score. On future retrievals in the same query cluster, their scores get penalized before the cross-encoder sees them, freeing slots for entries that were previously crowded out.
+
+Key design points:
+- **Clustered** (k-means 30, cue-dependent): an entry suppressed for "travel" queries stays available for "food" queries. 5× stronger than global suppression.
+- **Rank-gap competition formula**: `max(0, xenc_rank − initial_rank) / pool × sigmoid(−xenc)`. Only suppresses entries that actually dropped in rank AND were actively rejected, not entries that just lost a close race.
+
+Based on Anderson's inhibition theory (1994) and the SAM competitive-sampling model (Raaijmakers & Shiffrin, 1981). First implementation in an AI memory system as far as I can tell.
 
 ### Three storage layers
 
 | Layer | File | Purpose |
 |-------|------|---------|
-| SQLite | `gc_memory.db` | Entries metadata, rescue cache, stats |
-| numpy + FAISS | `embeddings.npz`, `faiss.index` | Vector storage, dense index |
+| SQLite | `gc_memory.db` | Entries, suppression state, rescue cache, stats |
+| numpy + FAISS | `embeddings.npz`, `faiss.index` | Vector storage |
 | BM25 | In-memory, rebuilt on startup | Sparse keyword index |
 
-### Entry lifecycle (inspired by germinal center biology)
+### Entry lifecycle (germinal-center inspired)
 
 ```
 NAIVE → GC → MEMORY
@@ -62,9 +82,11 @@ NAIVE → GC → MEMORY
 ```
 
 - **Naive**: new entries, unproven
-- **GC** (germinal center): retrieved 3+ times, actively evaluated
-- **Memory**: high affinity + frequently retrieved, stable tier, exempt from decay
+- **GC**: retrieved 3+ times, actively evaluated
+- **Memory**: high affinity + frequently retrieved, stable, exempt from decay
 - **Apoptotic**: low affinity + idle > 1000 steps, excluded from search
+
+Useful for long-running agents; doesn't directly improve retrieval quality (that's what RIF and enrichment do).
 
 ### Deduplication (on add)
 
@@ -81,46 +103,62 @@ uv venv --python 3.12 && uv pip install -e .
 ## Benchmark
 
 ```bash
+# prep LongMemEval
 uv run python experiments/data_prep.py --dataset longmemeval
+
+# retrieval-only baseline + RIF variants
 uv run python benchmarks/run_benchmark.py
+uv run python benchmarks/run_rif_benchmark.py
+
+# LLM enrichment layer (needs ANTHROPIC_API_KEY)
+export ANTHROPIC_API_KEY=sk-ant-...
+uv run python experiments/enrich_longmemeval.py     # one-time, ~$16 for 10k entries
+uv run python benchmarks/run_rif_enriched.py         # 3-arm benchmark
 ```
 
-See [BENCHMARKS.md](BENCHMARKS.md) for results.
+See [BENCHMARKS.md](BENCHMARKS.md) for results and methodology.
 
-## How it compares
+## Benchmark methodology
 
-| System | Approach | NDCG@10 |
-|--------|----------|---------|
-| Vector only (MiniLM) | Dense retrieval | 0.1376 |
-| BM25 only | Sparse keyword | 0.2420 |
-| Hybrid BM25+vector RRF | Rank fusion, no reranker | 0.2171 |
-| **Hybrid + cross-encoder rerank** | **BM25 + vector + xenc** | **0.3680** |
+All numbers here are **NDCG@10 over turn-level retrieval on the full 199,509-turn LongMemEval S corpus** — needle-in-haystack among 200k candidates.
 
-The retrieval quality comes from combining BM25 keyword matching with dense vector similarity, then reranking with a cross-encoder. This is a well-known IR technique. The GC mechanism provides memory lifecycle management (tiers, decay, dedup) but does not improve retrieval quality. See [BENCHMARKS.md](BENCHMARKS.md) for integrity checks.
+Other memory tools commonly report numbers on **per-query fresh DBs of ~50 sessions** at **session granularity** with **recall@5**. That's a ~2000× easier task (random baseline 10% vs 0.005%), and some implementations additionally leak ground truth via annotation fields at indexing time. Published numbers in the 95-99% range on that methodology are not directly comparable to numbers here.
 
-Measured on LongMemEval S variant (200k conversation turns, 500 evaluation questions).
+A fair head-to-head comparison (either methodology run on both systems) is a separate experiment.
 
 ## Project structure
 
 ```
 src/gc_memory/
-├── memory_store.py   # Main API: MemoryStore
-├── db.py             # SQLite persistence
-├── vectors.py        # FAISS + BM25 index management
-├── reranker.py       # Cross-encoder + adaptive depth
-├── dedup.py          # Hash + cosine deduplication
-├── entry.py          # MemoryEntry dataclass + Tier enum
-└── config.py         # Hyperparameters
+├── memory_store.py    # Main API: MemoryStore
+├── db.py              # SQLite persistence
+├── vectors.py         # FAISS + BM25 index management
+├── reranker.py        # Cross-encoder + adaptive depth
+├── rif.py             # Retrieval-induced forgetting (clustered + gap)
+├── enrichment.py      # Optional LLM write-time enrichment (Anthropic SDK)
+├── dedup.py           # Hash + cosine deduplication
+├── entry.py           # MemoryEntry dataclass + Tier enum
+└── config.py          # Hyperparameters
 
-benchmarks/           # Benchmark scripts + results
-experiments/          # Research experiment harness
-research/             # Original GC mutation research code
+benchmarks/            # Benchmark scripts + result markdowns
+experiments/           # Data prep, enrichment dataset builder
+research/              # Archived GC mutation / adapter / graph / SDM research
+sdm/                   # Sparse Distributed Memory prototype (checkpoint 15)
+tests/                 # Unit tests
 ```
 
 ## Research background
 
-This project started as an experiment porting the immune system's germinal center mechanism to vector memory. Eight approaches were tested: direct embedding mutation, adapter mutation, MLP adapters, text segmentation, co-relevance graphs, rescue caching, adaptive search depth, and GC routing indexes. None improved retrieval quality over the static hybrid+xenc baseline.
+This project started as an experiment porting the immune system's germinal-center mechanism to vector memory. 17 checkpoints so far:
 
-What DID work for retrieval: BM25 hybrid retrieval + cross-encoder reranking (a standard IR technique).
+1. **Checkpoints 1-10** (GC-mutation approaches): all failed to improve retrieval quality. Useful for lifecycle management, not retrieval.
+2. **Checkpoints 11-13** (RIF): cognitive-science inspired. Clustered + gap-formula variant gives +6.5% NDCG, +9.5% recall@30 on the full 500-query eval. First positive learned-retrieval result.
+3. **Checkpoints 14-15** (exploration/rescue, Sparse Distributed Memory prototype): both negative at full scale.
+4. **Checkpoint 16** (extended behavior metrics for checkpoint 13): RIF's gain is primarily from reducing cross-topic retrieval (−1.6pp wrong_family); sibling confusion and stale-fact rate unchanged.
+5. **Checkpoint 17** (LLM enrichment layer): write-time structured extraction via Haiku. On covered queries: +8.3pp NDCG over checkpoint 13 — largest single-lever gain in the journey. Overall diluted by partial coverage; scaling to full coverage is pending.
 
-What the GC mechanism provides: memory lifecycle management (tier promotion, affinity decay, deduplication). This is useful for long-running agents but doesn't improve retrieval quality on static benchmarks. The full research journey is in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
+Full journey in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
+
+## License
+
+MIT.
