@@ -131,25 +131,28 @@ A fair head-to-head comparison (either methodology run on both systems) is a sep
 ## Project structure
 
 ```
-src/lethe/
-├── memory_store.py    # Main API: MemoryStore
+src/lethe/             # Production library (~97% test coverage)
+├── memory_store.py
 ├── db.py              # SQLite persistence
-├── vectors.py         # FAISS + BM25 index management
+├── vectors.py         # FAISS + BM25 index
 ├── reranker.py        # Cross-encoder + adaptive depth
 ├── rif.py             # Retrieval-induced forgetting (clustered + gap)
 ├── enrichment.py      # Optional LLM write-time enrichment (Anthropic SDK)
 ├── dedup.py           # Hash + cosine deduplication
-├── entry.py           # MemoryEntry dataclass + Tier enum
-└── config.py          # Hyperparameters
+└── entry.py           # MemoryEntry dataclass + Tier enum
 
-benchmarks/
-├── run_*.py           # Benchmark scripts (one per checkpoint)
-└── results/           # Raw per-run output markdowns (historical)
+benchmarks/            # Per-checkpoint benchmark scripts
+├── run_*.py
+├── _lib/              # Benchmark-only helpers (metrics, etc.)
+└── results/           # Raw per-run output markdowns
 
-experiments/           # Data prep, enrichment dataset builder
-research/              # Archived GC mutation / adapter / graph research
-sdm/                   # Sparse Distributed Memory prototype (checkpoint 15)
-tests/                 # Unit tests
+scripts/               # Reproducibility utilities (dataset prep, enrichment runner)
+
+research/              # Experimental / research code (not production)
+├── gc_mutation/       # Germinal-center mutation thread (checkpoints 1-10)
+└── sdm/               # Sparse Distributed Memory prototype (checkpoint 15)
+
+tests/                 # Production unit tests
 ```
 
 ## Research background

@@ -15,28 +15,28 @@ Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval
 ## layout
 
 ```
-src/lethe/
-├── memory_store.py   # Production API: MemoryStore
+src/lethe/            # Production library (~97% test coverage)
+├── memory_store.py   # Main API: MemoryStore
 ├── db.py             # SQLite persistence
 ├── vectors.py        # FAISS + BM25 index management
 ├── reranker.py       # Cross-encoder + adaptive depth
-├── rif.py            # Retrieval-Induced Forgetting (competitor suppression)
+├── rif.py            # Retrieval-Induced Forgetting (clustered + gap)
+├── enrichment.py     # Optional LLM write-time enrichment (Anthropic SDK)
 ├── dedup.py          # Hash + cosine deduplication
-├── entry.py          # MemoryEntry dataclass + Tier enum
-├── config.py         # Hyperparameters
-├── metrics.py        # NDCG, recall, diversity (for benchmarks)
-├── store.py          # Research: original GC mutation store
-├── graph.py          # Research: co-relevance graph
-├── rescue_index.py   # Research: deep mining cache
-├── mutation.py       # Research: adapter mutation
-├── mlp_adapter.py    # Research: learned MLP adapter
-├── segmentation.py   # Research: text split/merge
-└── baselines.py      # Research: experiment baselines
+└── entry.py          # MemoryEntry dataclass + Tier enum
 
-benchmarks/           # Benchmark scripts, produces BENCHMARKS.md
-experiments/          # Research experiment harness (data_prep, run_experiment, analyze)
-research/             # Archived research modules
-tests/                # Unit tests
+benchmarks/           # Per-checkpoint benchmark scripts
+├── run_*.py
+├── _lib/             # Benchmark-only helpers (metrics, NDCG/recall)
+└── results/          # Raw per-run output markdowns
+
+scripts/              # Reproducibility utilities (dataset prep, enrichment runner)
+
+research/             # Experimental / non-production code
+├── gc_mutation/      # Germinal-center mutation thread (checkpoints 1-10)
+└── sdm/              # Sparse Distributed Memory prototype (checkpoint 15)
+
+tests/                # Production unit tests
 ```
 
 ## commands
