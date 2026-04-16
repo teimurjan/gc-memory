@@ -212,10 +212,23 @@ class MemoryStore:
         # RIF update: suppress competitors, reinforce winners
         rank_lookup = {eid: rank for rank, (eid, _) in enumerate(adjusted)}
         xenc_lookup = {eid: s for eid, s in scored}
-        competitor_data = [
-            (eid, rank_lookup.get(eid, len(adjusted)), xenc_lookup.get(eid, 0.0))
-            for eid in candidate_ids
-        ]
+        xenc_rank_lookup = {eid: rank for rank, (eid, _) in enumerate(scored)}
+        fallback_rank = len(scored)
+        if self.rif.use_rank_gap:
+            competitor_data: list[Any] = [
+                (
+                    eid,
+                    rank_lookup.get(eid, len(adjusted)),
+                    xenc_rank_lookup.get(eid, fallback_rank),
+                    xenc_lookup.get(eid, 0.0),
+                )
+                for eid in candidate_ids
+            ]
+        else:
+            competitor_data = [
+                (eid, rank_lookup.get(eid, len(adjusted)), xenc_lookup.get(eid, 0.0))
+                for eid in candidate_ids
+            ]
         last_updated = {eid: self.entries[eid].last_retrieved_step for eid in self.entries}
         rif_updates = update_suppression(
             winner_ids, competitor_data, suppression_scores,

@@ -1,0 +1,61 @@
+# lethe — Claude Code plugin
+
+Persistent memory across Claude Code sessions. Markdown-first storage, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, optional Haiku enrichment.
+
+## Install
+
+```
+/plugin marketplace add teimurjan/lethe
+/plugin install lethe
+```
+
+After restart, a `.lethe/` directory will appear in each project's git root on first use:
+
+```
+.lethe/
+├── memory/            # source of truth — daily markdown files (git-diffable)
+├── index/             # rebuildable SQLite + FAISS artifacts (safe to delete)
+├── enrichments.jsonl  # optional LLM enrichments per chunk
+└── config.toml        # user-editable knobs
+```
+
+## How it works
+
+| Event | Behavior |
+|-------|----------|
+| `SessionStart` | Appends `## Session HH:MM` heading; injects the last ~30 lines from the 2 most recent daily files as additional context. |
+| `UserPromptSubmit` | Emits a `[lethe] Memory available` hint so Claude can invoke the `memory-recall` skill. |
+| `Stop` (async) | Summarizes the latest turn via `claude -p --model haiku`, appends bullets + a progressive-disclosure anchor to today's file, and reindexes. |
+| `SessionEnd` (async) | Flushes suppression state. |
+
+## CLI
+
+Invoked by the skill and the hooks; also usable directly.
+
+```
+lethe --version
+lethe index [DIR]               # reindex markdown files (default: .lethe/memory)
+lethe search "QUERY" --top-k 5
+lethe search "QUERY" --json-output
+lethe expand <chunk-id>
+lethe status
+lethe config get KEY
+lethe config set KEY VALUE
+lethe reset --yes               # wipes .lethe/index/; markdown preserved
+lethe enrich [DIR]              # optional: Haiku enrichment (needs ANTHROPIC_API_KEY)
+```
+
+## Requirements
+
+- `uv` (the hooks auto-resolve the CLI via `uvx --from git+https://github.com/teimurjan/lethe lethe` if it isn't on PATH)
+- `claude` CLI for the Stop hook summarizer (uses your existing auth — no extra API key)
+- Python 3.11+
+
+## Debugging
+
+Set `LETHE_DEBUG=1` to write hook traces to `.lethe/hooks.log`.
+
+## Reference
+
+- Repo: <https://github.com/teimurjan/lethe>
+- Retrieval methodology and benchmarks: [BENCHMARKS.md](../../BENCHMARKS.md)

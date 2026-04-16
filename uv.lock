@@ -1177,33 +1177,39 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
-    { name = "beir" },
-    { name = "datasets" },
     { name = "faiss-cpu" },
-    { name = "matplotlib" },
-    { name = "mypy" },
     { name = "numpy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
     { name = "rank-bm25" },
     { name = "sentence-transformers" },
+]
+
+[package.optional-dependencies]
+benchmarks = [
+    { name = "beir" },
+    { name = "datasets" },
+    { name = "matplotlib" },
     { name = "tqdm" },
+]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.30" },
-    { name = "beir", specifier = ">=2.0" },
-    { name = "datasets", specifier = ">=2.0" },
+    { name = "beir", marker = "extra == 'benchmarks'", specifier = ">=2.0" },
+    { name = "datasets", marker = "extra == 'benchmarks'", specifier = ">=2.0" },
     { name = "faiss-cpu", specifier = ">=1.7" },
-    { name = "matplotlib", specifier = ">=3.7" },
-    { name = "mypy", specifier = ">=1.0" },
+    { name = "matplotlib", marker = "extra == 'benchmarks'", specifier = ">=3.7" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "numpy", specifier = ">=1.24" },
-    { name = "pytest", specifier = ">=7.0" },
-    { name = "pytest-cov", specifier = ">=4.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "rank-bm25", specifier = ">=0.2" },
     { name = "sentence-transformers", specifier = ">=2.0" },
-    { name = "tqdm", specifier = ">=4.60" },
+    { name = "tqdm", marker = "extra == 'benchmarks'", specifier = ">=4.60" },
 ]
 
 [[package]]
