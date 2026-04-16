@@ -7,7 +7,7 @@ target), at roughly 15-25k entries.
 
 Usage:
   export ANTHROPIC_API_KEY=sk-ant-...
-  uv run python experiments/enrich_longmemeval.py [--model MODEL] [--max N]
+  uv run python scripts/enrich_longmemeval.py [--model MODEL] [--max N]
 
 Output:
   data/longmemeval_enriched.jsonl — one Enrichment per line.

@@ -4,9 +4,14 @@ import math
 
 import pytest
 
+import numpy as np
+
 from gc_memory.rif import (
+    ClusteredSuppressionState,
     RIFConfig,
     apply_suppression_penalty,
+    assign_cluster,
+    build_clusters,
     competition_strength,
     competition_strength_gap,
     update_suppression,
@@ -158,3 +163,92 @@ class TestUpdateSuppression:
             current_step=1, last_updated={"a": 1},
         )
         assert result["a"] >= 0.0
+
+    def test_gap_formula_routed_through_config(self, config: RIFConfig) -> None:
+        gap_cfg = RIFConfig(**{**config.__dict__, "use_rank_gap": True})
+        winners: set[str] = set()
+        # Format for gap: (id, initial_rank, xenc_rank, xenc_score)
+        competitors = [("a", 0, 25, -5.0), ("b", 5, 5, -5.0)]
+        result = update_suppression(
+            winners, competitors, {}, pool_size=30,
+            config=gap_cfg, current_step=1, last_updated={},
+        )
+        # "a" has a large rank drop (0→25) → suppressed; "b" didn't drop (5→5) → not.
+        assert result["a"] > 0.0
+        assert result["b"] == 0.0
+
+
+class TestBuildClusters:
+    def test_returns_centroids_with_expected_shape(self) -> None:
+        rng = np.random.default_rng(0)
+        embeddings = rng.standard_normal((200, 16)).astype(np.float32)
+        centroids = build_clusters(embeddings, n_clusters=5)
+        assert centroids.shape == (5, 16)
+        assert centroids.dtype == np.float32
+
+    def test_deterministic_with_seed(self) -> None:
+        rng = np.random.default_rng(0)
+        embeddings = rng.standard_normal((200, 16)).astype(np.float32)
+        c1 = build_clusters(embeddings, n_clusters=5)
+        c2 = build_clusters(embeddings, n_clusters=5)
+        # FAISS kmeans w/ fixed seed is deterministic
+        assert np.allclose(c1, c2)
+
+
+class TestAssignCluster:
+    def test_returns_nearest_centroid_index(self) -> None:
+        centroids = np.array(
+            [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0]],
+            dtype=np.float32,
+        )
+        q = np.array([0.9, 0.1], dtype=np.float32)
+        assert assign_cluster(q, centroids) == 0
+        q2 = np.array([-0.95, 0.2], dtype=np.float32)
+        assert assign_cluster(q2, centroids) == 2
+
+
+class TestClusteredSuppressionState:
+    def test_isolates_per_cluster(self) -> None:
+        s = ClusteredSuppressionState()
+        s.update_cluster(0, {"e1": 0.7}, step=1)
+        s.update_cluster(5, {"e2": 0.4}, step=2)
+
+        # Cluster 0 only sees e1, not e2
+        assert s.get_cluster_scores(0) == {"e1": 0.7}
+        assert s.get_cluster_scores(5) == {"e2": 0.4}
+        # Empty cluster returns empty dict (not a shared reference)
+        assert s.get_cluster_scores(99) == {}
+
+    def test_update_cluster_independent(self) -> None:
+        s = ClusteredSuppressionState()
+        s.update_cluster(0, {"e1": 0.5}, step=1)
+        s.update_cluster(0, {"e1": 0.8, "e2": 0.3}, step=5)
+        scores = s.get_cluster_scores(0)
+        assert scores["e1"] == 0.8  # overwritten
+        assert scores["e2"] == 0.3
+
+    def test_update_records_last_updated_step(self) -> None:
+        s = ClusteredSuppressionState()
+        s.update_cluster(3, {"x": 0.2}, step=42)
+        assert s.get_cluster_last_updated(3) == {"x": 42}
+
+    def test_total_suppressed_counts_unique_entries_over_threshold(self) -> None:
+        s = ClusteredSuppressionState()
+        s.update_cluster(0, {"a": 0.2, "b": 0.001}, step=1)
+        s.update_cluster(1, {"b": 0.5, "c": 0.4}, step=2)
+        # Above default 0.01 threshold: a, b (cluster 1), c. "b in cluster 0" below threshold.
+        assert s.total_suppressed() == 3
+
+    def test_max_suppression(self) -> None:
+        s = ClusteredSuppressionState()
+        assert s.max_suppression() == 0.0  # empty state
+        s.update_cluster(0, {"a": 0.3}, step=1)
+        s.update_cluster(1, {"b": 0.9}, step=2)
+        assert s.max_suppression() == 0.9
+
+    def test_mean_suppression_handles_empty(self) -> None:
+        s = ClusteredSuppressionState()
+        assert s.mean_suppression() == 0.0
+        s.update_cluster(0, {"a": 0.2, "b": 0.4}, step=1)
+        mean = s.mean_suppression(threshold=0.0)
+        assert mean == pytest.approx(0.3)

@@ -1,9 +1,9 @@
 """Prepare datasets: NFCorpus (BEIR) and/or LongMemEval (HuggingFace).
 
 Usage:
-    python experiments/data_prep.py --dataset nfcorpus
-    python experiments/data_prep.py --dataset longmemeval
-    python experiments/data_prep.py --dataset both
+    python scripts/prep_longmemeval.py --dataset nfcorpus
+    python scripts/prep_longmemeval.py --dataset longmemeval
+    python scripts/prep_longmemeval.py --dataset both
 """
 from __future__ import annotations
 

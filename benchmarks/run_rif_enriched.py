@@ -34,9 +34,10 @@ from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 from sentence_transformers import CrossEncoder, SentenceTransformer  # type: ignore[import-untyped]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gc_memory.enrichment import load_enrichments  # noqa: E402
-from gc_memory.metrics import ndcg_at_k  # noqa: E402
+from benchmarks._lib.metrics import ndcg_at_k  # noqa: E402
 from gc_memory.rif import (  # noqa: E402
     ClusteredSuppressionState,
     RIFConfig,

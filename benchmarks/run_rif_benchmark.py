@@ -18,6 +18,10 @@ import os
 import time
 from pathlib import Path
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import faiss
@@ -25,7 +29,7 @@ import numpy as np
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
-from gc_memory.metrics import ndcg_at_k
+from benchmarks._lib.metrics import ndcg_at_k
 from gc_memory.rif import RIFConfig, apply_suppression_penalty, competition_strength, update_suppression
 
 DATA = Path("data")

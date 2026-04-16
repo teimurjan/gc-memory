@@ -1,8 +1,8 @@
 """Run the v4 experiment: Static vs MLP Adapter vs Segmentation.
 
 Usage:
-    python experiments/run_experiment.py --dataset nfcorpus
-    python experiments/run_experiment.py --dataset longmemeval
+    python gc_mutation/run_experiment.py --dataset nfcorpus
+    python gc_mutation/run_experiment.py --dataset longmemeval
 """
 from __future__ import annotations
 
@@ -12,15 +12,19 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+
 import numpy as np
 import numpy.typing as npt
 from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 from tqdm import tqdm  # type: ignore[import-untyped]
 
-from gc_memory.baselines import NoGraphStore, StaticStore
-from gc_memory.config import Config
+from gc_mutation.baselines import NoGraphStore, StaticStore
+from gc_mutation.config import Config
 from gc_memory.entry import MemoryEntry, Tier, create_entry
-from gc_memory.metrics import (
+from benchmarks._lib.metrics import (
     compute_anchor_drift,
     compute_diversity,
     compute_mean_generation,
@@ -28,7 +32,7 @@ from gc_memory.metrics import (
     ndcg_at_k,
     recall_at_k,
 )
-from gc_memory.store import GCMemoryStore
+from gc_mutation.store import GCMemoryStore
 
 
 RESULTS_DIR = Path("results")

@@ -5,9 +5,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from gc_memory.config import Config
+from gc_mutation.config import Config
 from gc_memory.entry import MemoryEntry
-from gc_memory.store import GCMemoryStore
+from gc_mutation.store import GCMemoryStore
 
 
 class StaticStore(GCMemoryStore):
