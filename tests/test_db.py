@@ -1,12 +1,12 @@
-"""Unit tests for gc_memory.db.MemoryDB using in-memory SQLite."""
+"""Unit tests for lethe.db.MemoryDB using in-memory SQLite."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from gc_memory.db import MemoryDB
-from gc_memory.entry import Tier
+from lethe.db import MemoryDB
+from lethe.entry import Tier
 
 
 @pytest.fixture

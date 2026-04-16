@@ -1,7 +1,7 @@
-"""Unit tests for gc_memory.reranker.Reranker."""
+"""Unit tests for lethe.reranker.Reranker."""
 from __future__ import annotations
 
-from gc_memory.reranker import Reranker
+from lethe.reranker import Reranker
 
 
 class FakeEncoder:

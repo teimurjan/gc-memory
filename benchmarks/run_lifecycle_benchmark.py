@@ -32,7 +32,7 @@ from datasets import load_dataset  # type: ignore[import-untyped]
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
-from gc_memory.entry import Tier
+from lethe.entry import Tier
 from benchmarks._lib.metrics import ndcg_at_k
 
 DATA = Path("data")

@@ -23,7 +23,7 @@ from tqdm import tqdm  # type: ignore[import-untyped]
 
 from gc_mutation.baselines import NoGraphStore, StaticStore
 from gc_mutation.config import Config
-from gc_memory.entry import MemoryEntry, Tier, create_entry
+from lethe.entry import MemoryEntry, Tier, create_entry
 from benchmarks._lib.metrics import (
     compute_anchor_drift,
     compute_diversity,

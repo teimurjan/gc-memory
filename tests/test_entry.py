@@ -1,4 +1,4 @@
-"""Unit tests for gc_memory.entry (MemoryEntry, Tier, effective_embedding, create_entry)."""
+"""Unit tests for lethe.entry (MemoryEntry, Tier, effective_embedding, create_entry)."""
 from __future__ import annotations
 
 import math
@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from gc_memory.entry import MemoryEntry, Tier, create_entry, effective_embedding
+from lethe.entry import MemoryEntry, Tier, create_entry, effective_embedding
 
 
 def test_create_entry_normalizes_embedding() -> None:

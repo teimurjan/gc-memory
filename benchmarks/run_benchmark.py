@@ -1,4 +1,4 @@
-"""Benchmark gc-memory against baseline approaches on LongMemEval.
+"""Benchmark lethe against baseline approaches on LongMemEval.
 
 Produces clean output and saves results to BENCHMARKS.md.
 Usage: uv run python benchmarks/run_benchmark.py
@@ -67,7 +67,7 @@ def evaluate(
 
 def main() -> None:
     print("=" * 60)
-    print("gc-memory benchmark on LongMemEval")
+    print("lethe benchmark on LongMemEval")
     print("=" * 60)
     print()
 
@@ -148,8 +148,8 @@ def main() -> None:
     results.append(("Vector + cross-encoder rerank", ndcg, recall, t1 - t0))
     print(f"  Vector + cross-encoder rerank:       NDCG={ndcg:.4f}  Recall={recall:.4f}  [{t1-t0:.1f}s]", flush=True)
 
-    # 5. gc-memory full stack (BM25 + vector + xenc rerank)
-    def gc_memory_full(qi, qe, qt):
+    # 5. lethe full stack (BM25 + vector + xenc rerank)
+    def lethe_full(qi, qe, qt):
         D, I = index.search(qe.reshape(1, -1), 30)
         vec_ids = [corpus_ids[i] for i in I[0] if i >= 0]
         scores = bm25.get_scores(qt.lower().split())
@@ -161,10 +161,10 @@ def main() -> None:
         return [c for c, _ in ranked[:10]]
 
     t0 = time.time()
-    ndcg, recall = evaluate("gc-memory", gc_memory_full, query_ids, query_embs, query_texts, qrels)
+    ndcg, recall = evaluate("lethe", lethe_full, query_ids, query_embs, query_texts, qrels)
     t1 = time.time()
-    results.append(("gc-memory (BM25 + vector + xenc)", ndcg, recall, t1 - t0))
-    print(f"  gc-memory (BM25 + vector + xenc):    NDCG={ndcg:.4f}  Recall={recall:.4f}  [{t1-t0:.1f}s]", flush=True)
+    results.append(("lethe (BM25 + vector + xenc)", ndcg, recall, t1 - t0))
+    print(f"  lethe (BM25 + vector + xenc):        NDCG={ndcg:.4f}  Recall={recall:.4f}  [{t1-t0:.1f}s]", flush=True)
 
     # Write BENCHMARKS.md
     print(f"\nWriting {BENCHMARKS_MD}...", flush=True)

@@ -1,4 +1,4 @@
-"""Unit tests for gc_memory.vectors.VectorIndex (FAISS + BM25 + RRF hybrid)."""
+"""Unit tests for lethe.vectors.VectorIndex (FAISS + BM25 + RRF hybrid)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from gc_memory.vectors import VectorIndex
+from lethe.vectors import VectorIndex
 
 
 DIM = 16

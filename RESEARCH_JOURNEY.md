@@ -1,6 +1,6 @@
 # Research Journey
 
-How `gc-memory` evolved from a biology experiment into a three-stage retrieval system: hybrid IR → clustered RIF → LLM enrichment.
+How `lethe` (originally `gc-memory`) evolved from a biology experiment into a three-stage retrieval system: hybrid IR → clustered RIF → LLM enrichment.
 
 All numbers are NDCG@10 on the full LongMemEval S corpus (199,509 turns, 500 queries) unless explicitly scoped to a smaller eval. Benchmark methodology note at the bottom.
 

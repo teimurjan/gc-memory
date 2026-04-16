@@ -1,10 +1,10 @@
-"""Unit tests for gc_memory.dedup."""
+"""Unit tests for lethe.dedup."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from gc_memory.dedup import content_hash, is_near_duplicate
+from lethe.dedup import content_hash, is_near_duplicate
 
 
 def test_content_hash_deterministic() -> None:

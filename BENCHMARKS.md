@@ -1,6 +1,6 @@
 # Benchmarks
 
-Canonical results for `gc-memory`. For the narrative (why each experiment was run, what failed, how we got here), see [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
+Canonical results for `lethe`. For the narrative (why each experiment was run, what failed, how we got here), see [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
 
 ## Methodology
 

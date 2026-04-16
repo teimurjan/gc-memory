@@ -13,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 from gc_mutation.config import Config
-from gc_memory.entry import MemoryEntry, Tier, create_entry
+from lethe.entry import MemoryEntry, Tier, create_entry
 
 
 # Sentence boundary regex: handles common abbreviations

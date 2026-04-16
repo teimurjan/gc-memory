@@ -6,7 +6,7 @@ from collections.abc import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from gc_memory.entry import MemoryEntry, Tier
+from lethe.entry import MemoryEntry, Tier
 
 
 def compute_diversity(

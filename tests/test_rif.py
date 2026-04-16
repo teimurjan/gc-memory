@@ -6,7 +6,7 @@ import pytest
 
 import numpy as np
 
-from gc_memory.rif import (
+from lethe.rif import (
     ClusteredSuppressionState,
     RIFConfig,
     apply_suppression_penalty,

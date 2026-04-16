@@ -1,4 +1,4 @@
-"""Unit tests for gc_memory.enrichment.
+"""Unit tests for lethe.enrichment.
 
 Tests the Enrichment dataclass, load_enrichments JSONL parser, cost model,
 and _enrich_single with a mocked AsyncAnthropic client. No network / real
@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 import anthropic
 import pytest
 
-from gc_memory.enrichment import (
+from lethe.enrichment import (
     Enrichment,
     EnrichmentStats,
     _enrich_single,
@@ -249,7 +249,7 @@ def test_enrich_dataset_resume_skips_completed(tmp_path: Path, monkeypatch) -> N
         def __init__(self, *_, **__):
             self.messages = SimpleNamespace(create=mock_create)
 
-    monkeypatch.setattr("gc_memory.enrichment.AsyncAnthropic", FakeClient)
+    monkeypatch.setattr("lethe.enrichment.AsyncAnthropic", FakeClient)
 
     stats = asyncio.run(enrich_dataset(
         entries=[("a", "text-a"), ("b", "text-b")],
@@ -282,7 +282,7 @@ def test_enrich_dataset_noop_when_everything_done(tmp_path: Path, monkeypatch) -
         def __init__(self, *_, **__):
             self.messages = SimpleNamespace(create=AsyncMock())
 
-    monkeypatch.setattr("gc_memory.enrichment.AsyncAnthropic", FakeClient)
+    monkeypatch.setattr("lethe.enrichment.AsyncAnthropic", FakeClient)
 
     stats = asyncio.run(enrich_dataset(
         entries=[("a", "text-a")],

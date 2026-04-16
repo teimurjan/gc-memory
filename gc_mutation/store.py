@@ -9,7 +9,7 @@ import numpy.typing as npt
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 from gc_mutation.config import Config
-from gc_memory.entry import MemoryEntry, Tier, effective_embedding
+from lethe.entry import MemoryEntry, Tier, effective_embedding
 from gc_mutation.graph import RelevanceGraph
 from gc_mutation.rescue_index import RescueIndex
 

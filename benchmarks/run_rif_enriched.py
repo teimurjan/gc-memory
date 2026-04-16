@@ -36,9 +36,9 @@ from sentence_transformers import CrossEncoder, SentenceTransformer  # type: ign
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gc_memory.enrichment import load_enrichments  # noqa: E402
+from lethe.enrichment import load_enrichments  # noqa: E402
 from benchmarks._lib.metrics import ndcg_at_k  # noqa: E402
-from gc_memory.rif import (  # noqa: E402
+from lethe.rif import (  # noqa: E402
     ClusteredSuppressionState,
     RIFConfig,
     apply_suppression_penalty,

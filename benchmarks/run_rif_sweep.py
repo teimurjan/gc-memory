@@ -29,7 +29,7 @@ from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
 from benchmarks._lib.metrics import ndcg_at_k
-from gc_memory.rif import RIFConfig, apply_suppression_penalty, update_suppression
+from lethe.rif import RIFConfig, apply_suppression_penalty, update_suppression
 
 DATA = Path("data")
 RESULTS = Path("BENCHMARKS_RIF_SWEEP.md")

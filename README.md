@@ -1,4 +1,6 @@
-# gc-memory
+# lethe
+
+> *Λήθη — the ancient Greek personification of forgetfulness, and one of the five rivers of the underworld.*
 
 A memory store for LLM agents. Hybrid BM25 + dense retrieval, cross-encoder reranking, **clustered retrieval-induced forgetting**, and an **optional LLM enrichment layer** at write time.
 
@@ -15,7 +17,7 @@ The enrichment gain is measured on the 75 queries for which the answer turns are
 ## Quick start
 
 ```python
-from gc_memory import MemoryStore
+from lethe import MemoryStore
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
 store = MemoryStore(
@@ -53,7 +55,7 @@ Query
                     └── Update suppression state, affinities, tier
 ```
 
-**Optional write-time LLM enrichment layer** (`src/gc_memory/enrichment.py`): before indexing, each memory can be processed by an LLM (default `claude-haiku-4-5`) to produce a gist, 3 anticipated queries, entities, and temporal markers. All fields index alongside the original text; cross-encoder still scores against original. Attacks the vocabulary-mismatch failure mode.
+**Optional write-time LLM enrichment layer** (`src/lethe/enrichment.py`): before indexing, each memory can be processed by an LLM (default `claude-haiku-4-5`) to produce a gist, 3 anticipated queries, entities, and temporal markers. All fields index alongside the original text; cross-encoder still scores against original. Attacks the vocabulary-mismatch failure mode.
 
 ### Retrieval-induced forgetting (RIF)
 
@@ -69,7 +71,7 @@ Based on Anderson's inhibition theory (1994) and the SAM competitive-sampling mo
 
 | Layer | File | Purpose |
 |-------|------|---------|
-| SQLite | `gc_memory.db` | Entries, suppression state, rescue cache, stats |
+| SQLite | `lethe.db` | Entries, suppression state, rescue cache, stats |
 | numpy + FAISS | `embeddings.npz`, `faiss.index` | Vector storage |
 | BM25 | In-memory, rebuilt on startup | Sparse keyword index |
 
@@ -96,7 +98,7 @@ Useful for long-running agents; doesn't directly improve retrieval quality (that
 ## Install
 
 ```bash
-git clone https://github.com/teimurjan/gc-memory && cd gc-memory
+git clone https://github.com/teimurjan/lethe && cd lethe
 uv venv --python 3.12 && uv pip install -e .
 ```
 
@@ -129,7 +131,7 @@ A fair head-to-head comparison (either methodology run on both systems) is a sep
 ## Project structure
 
 ```
-src/gc_memory/
+src/lethe/
 ├── memory_store.py    # Main API: MemoryStore
 ├── db.py              # SQLite persistence
 ├── vectors.py         # FAISS + BM25 index management

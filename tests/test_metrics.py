@@ -9,7 +9,7 @@ import math
 import numpy as np
 import pytest
 
-from gc_memory.entry import Tier, create_entry
+from lethe.entry import Tier, create_entry
 from benchmarks._lib.metrics import (
     compute_anchor_drift,
     compute_diversity,

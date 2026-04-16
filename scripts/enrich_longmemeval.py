@@ -22,10 +22,10 @@ from pathlib import Path
 
 DATA = Path("data")
 
-# Ensure gc_memory is importable when run from repo root.
+# Ensure lethe is importable when run from repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from gc_memory.enrichment import enrich_dataset, EnrichmentStats  # noqa: E402
+from lethe.enrichment import enrich_dataset, EnrichmentStats  # noqa: E402
 
 
 def select_answer_relevant_entries(

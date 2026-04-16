@@ -1,6 +1,6 @@
-# gc-memory
+# lethe
 
-Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval with cross-encoder reranking.
+Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval with cross-encoder reranking, clustered retrieval-induced forgetting, and optional LLM write-time enrichment.
 
 ## stack
 
@@ -15,7 +15,7 @@ Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval
 ## layout
 
 ```
-src/gc_memory/
+src/lethe/
 ├── memory_store.py   # Production API: MemoryStore
 ├── db.py             # SQLite persistence
 ├── vectors.py        # FAISS + BM25 index management

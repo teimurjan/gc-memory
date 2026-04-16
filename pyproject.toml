@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gc-memory"
+name = "lethe"
 version = "0.1.0"
-description = "Self-refining memory store via germinal center dynamics"
+description = "Self-improving memory store for LLM agents: hybrid retrieval, clustered retrieval-induced forgetting, optional LLM enrichment"
 requires-python = ">=3.11"
 dependencies = [
     "faiss-cpu>=1.7",
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gc_memory"]
+packages = ["src/lethe"]
 
 [tool.mypy]
 strict = true

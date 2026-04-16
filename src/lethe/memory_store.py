@@ -13,12 +13,12 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from gc_memory.db import MemoryDB
-from gc_memory.dedup import content_hash, is_near_duplicate
-from gc_memory.entry import MemoryEntry, Tier, create_entry
-from gc_memory.reranker import Reranker
-from gc_memory.rif import RIFConfig, apply_suppression_penalty, update_suppression
-from gc_memory.vectors import VectorIndex
+from lethe.db import MemoryDB
+from lethe.dedup import content_hash, is_near_duplicate
+from lethe.entry import MemoryEntry, Tier, create_entry
+from lethe.reranker import Reranker
+from lethe.rif import RIFConfig, apply_suppression_penalty, update_suppression
+from lethe.vectors import VectorIndex
 
 
 class MemoryStore:
@@ -53,7 +53,7 @@ class MemoryStore:
         self.rif = rif_config or RIFConfig()
 
         # Storage layers
-        self.db = MemoryDB(self.path / "gc_memory.db")
+        self.db = MemoryDB(self.path / "lethe.db")
         self.index = VectorIndex(dim=dim)
         self.reranker = Reranker(cross_encoder, confidence_threshold)
 

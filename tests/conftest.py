@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for gc_memory production tests.
+"""Shared pytest fixtures for lethe production tests.
 
 Mocks the external models (SentenceTransformer, CrossEncoder, AsyncAnthropic)
 so tests are fast, deterministic, and don't require network / disk / GPU.
@@ -17,7 +17,7 @@ from typing import Iterable
 import numpy as np
 import pytest
 
-from gc_memory.entry import MemoryEntry, Tier, create_entry
+from lethe.entry import MemoryEntry, Tier, create_entry
 
 
 # ---------- Determinism helpers ----------

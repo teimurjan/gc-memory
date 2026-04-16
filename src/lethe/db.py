@@ -1,4 +1,4 @@
-"""SQLite persistence for gc-memory entries and rescue cache."""
+"""SQLite persistence for lethe entries and rescue cache."""
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from gc_memory.entry import MemoryEntry, Tier
+from lethe.entry import MemoryEntry, Tier
 
 
 SCHEMA = """

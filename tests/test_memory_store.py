@@ -1,4 +1,4 @@
-"""End-to-end unit tests for gc_memory.memory_store.MemoryStore.
+"""End-to-end unit tests for lethe.memory_store.MemoryStore.
 
 Uses mock bi-encoder + cross-encoder from conftest.py — no real model loads,
 no network, no disk leakage beyond tmp_path.
@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from gc_memory.entry import Tier
-from gc_memory.memory_store import MemoryStore
+from lethe.entry import Tier
+from lethe.memory_store import MemoryStore
 
 
 # ---------- Fixture ----------
@@ -57,7 +57,7 @@ def test_add_near_duplicate_keeps_longer(store: MemoryStore, mock_bi_encoder) ->
     long_text = "hi there this is a longer version"
     # Use the same embedding as the short entry
     same_emb = store.entries[short].base_embedding
-    from gc_memory.entry import create_entry
+    from lethe.entry import create_entry
     # Instead of calling store.add (which would give a different embedding via encoder),
     # manually do the near-duplicate flow by passing identical embeddings.
     # We'll just verify the short one is replaced by construction:

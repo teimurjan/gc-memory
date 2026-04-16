@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from gc_mutation.config import Config
-from gc_memory.entry import MemoryEntry
+from lethe.entry import MemoryEntry
 from gc_mutation.store import GCMemoryStore
 
 

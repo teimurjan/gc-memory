@@ -1,6 +1,6 @@
 # gc_mutation/
 
-Archived research code from checkpoints 1-10 of the gc-memory research journey: the original germinal-center-inspired mutation experiments that didn't survive contact with real retrieval benchmarks. Kept for reproducibility, not for production use.
+Archived research code from checkpoints 1-10 of the lethe research journey: the original germinal-center-inspired mutation experiments that didn't survive contact with real retrieval benchmarks. Kept for reproducibility, not for production use.
 
 ## What's here
 
@@ -17,11 +17,11 @@ Archived research code from checkpoints 1-10 of the gc-memory research journey: 
 
 ## Status
 
-None of this is reachable from `src/gc_memory.MemoryStore`. The research thread concluded that the GC mutation loop doesn't improve retrieval quality (see `RESEARCH_JOURNEY.md` checkpoints 1-10). The genuinely productive threads — RIF (checkpoints 11-13) and LLM enrichment (checkpoint 17) — live in `src/gc_memory/`.
+None of this is reachable from `src/lethe.MemoryStore`. The research thread concluded that the GC mutation loop doesn't improve retrieval quality (see `RESEARCH_JOURNEY.md` checkpoints 1-10). The genuinely productive threads — RIF (checkpoints 11-13) and LLM enrichment (checkpoint 17) — live in `src/lethe/`.
 
 ## Running
 
-These modules depend on production primitives like `gc_memory.entry.MemoryEntry`. Make sure the repo is installed in editable mode:
+These modules depend on production primitives like `lethe.entry.MemoryEntry`. Make sure the repo is installed in editable mode:
 
 ```bash
 uv pip install -e .
