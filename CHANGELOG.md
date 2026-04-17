@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.2...lethe-memory-v0.2.3) (2026-04-17)
+
+
+### Bug Fixes
+
+* Add update instructions to README ([9779e48](https://github.com/teimurjan/lethe/commit/9779e486261bb85076683b2e29b8c316389d242c))
+
 ## [0.2.2](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.1...lethe-memory-v0.2.2) (2026-04-17)
 
 
