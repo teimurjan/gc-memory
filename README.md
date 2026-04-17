@@ -8,12 +8,6 @@
 
 A memory store for LLM agents. Hybrid BM25 + dense retrieval, cross-encoder reranking, **clustered retrieval-induced forgetting (RIF)**, and an optional LLM enrichment layer at write time.
 
-<div align="center">
-    <img src="./assets/demo.gif" />
-</div>
-
-> Lethe full stack vs basic hybrid RRF on the 199,509-turn LongMemEval corpus. NDCG@10 over 5,000 queries.
-
 ## Read this before the benchmark numbers
 
 Most memory-tool READMEs advertise NDCG or recall in the 95 to 99% range. Those numbers come from evaluating on a per-query fresh database of ~50 sessions, at session granularity, with recall@5. That's a roughly 2000× easier task than "find this specific turn among 200,000". Some implementations additionally leak ground-truth annotations into the index.
@@ -30,6 +24,11 @@ No 99%. No cherry-picking. These are the honest numbers on a hard benchmark:
 | + LLM enrichment, on covered queries | **0.473** | +21% on the 75 queries where the answer turn was Haiku-enriched |
 
 Enrichment only helps where it's been applied; the full-corpus number is diluted by the uncovered 425 queries. Full methodology in [BENCHMARKS.md](BENCHMARKS.md). The research path, including 10 failed approaches before anything worked, is in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
+
+
+https://github.com/user-attachments/assets/ea6e9657-7525-4fed-ba40-df7a14e6b9f4
+
+> Lethe full stack vs basic hybrid RRF on the 199,509-turn LongMemEval corpus. NDCG@10 over 5,000 queries.
 
 ## What's new here: retrieval-induced forgetting
 
