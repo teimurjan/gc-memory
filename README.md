@@ -1,7 +1,7 @@
 # lethe
 
 <div align="center">
-    <img src="./assets/logo.png" width="300" height="300" />
+    <img src="https://raw.githubusercontent.com/teimurjan/lethe/main/assets/logo.png" width="300" height="300" />
 </div>
 
 > *Λήθη: the ancient Greek personification of forgetfulness, and one of the five rivers of the underworld.*

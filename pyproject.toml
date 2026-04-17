@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "lethe-memory"
 version = "0.2.0" # x-release-please-version
 description = "Self-improving memory store for LLM agents: hybrid retrieval, clustered retrieval-induced forgetting, optional LLM enrichment"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "faiss-cpu>=1.7",
