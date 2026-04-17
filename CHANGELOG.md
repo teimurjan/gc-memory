@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.2...lethe-memory-v0.3.0) (2026-04-17)
+
+
+### Features
+
+* Add --all global search to memory-recall skill ([3ccdafe](https://github.com/teimurjan/lethe/commit/3ccdafe9a2260e997387c0471343a78447c695a2))
+
 ## [0.2.2](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.1...lethe-memory-v0.2.2) (2026-04-17)
 
 
