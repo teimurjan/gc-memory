@@ -324,8 +324,6 @@ A head-to-head comparison on a shared methodology (either side) is a separate ex
 
 ---
 
-## What's next
-
 ### Implementation note: query-based vs entry-based clustering for production RIF
 
 When wiring clustered RIF into `MemoryStore.retrieve()` (shipping checkpoint 13 to production), we tested two clustering strategies:
