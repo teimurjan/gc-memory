@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.0...lethe-memory-v0.2.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* Add README to PyPI, absolute logo URL, MIT license ([78188dd](https://github.com/teimurjan/lethe/commit/78188dd9642694f441f1a42a4ea99ae42a498dd7))
+
 ## [0.2.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.1.0...lethe-memory-v0.2.0) (2026-04-17)
 
 
