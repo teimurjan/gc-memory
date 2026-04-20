@@ -3,13 +3,13 @@
   "owner": { "name": "Teimur Gasanov" },
   "metadata": {
     "description": "Self-improving memory for Claude Code — markdown-first, hybrid retrieval, RIF, optional LLM enrichment",
-    "version": "0.1.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "lethe",
       "description": "Persistent memory across Claude Code sessions — hybrid BM25+dense retrieval, clustered retrieval-induced forgetting, optional Haiku enrichment.",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "source": "./plugins/claude-code",
       "author": { "name": "Teimur Gasanov" },
       "homepage": "https://github.com/teimurjan/lethe",

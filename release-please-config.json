@@ -7,7 +7,17 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "src/lethe/__init__.py",
-        "pyproject.toml"
+        "pyproject.toml",
+        {
+          "type": "json",
+          "path": ".claude-plugin/marketplace.json",
+          "jsonpath": "$.metadata.version"
+        },
+        {
+          "type": "json",
+          "path": ".claude-plugin/marketplace.json",
+          "jsonpath": "$.plugins[*].version"
+        }
       ]
     }
   },
