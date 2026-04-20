@@ -1,6 +1,9 @@
 node_modules/
 out/
 public/run.json
+public/run_replay.json
+public/run_replay_warm.json
+public/run_replay_extended.json
 .pass_out/
 .ruff_cache/
 bun.lock

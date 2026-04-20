@@ -15,22 +15,22 @@ import type {RunData} from "./types";
 
 export const INTRO_FRAMES = 60;
 export const SCHEMATIC_FRAMES = 330;
-export const CURVE_FRAMES = 120;
-export const OUTRO_FRAMES = 90;
+export const CURVE_FRAMES = 180;
+export const OUTRO_FRAMES = 120;
 
 export const LetheDemo: React.FC = () => {
   const [run, setRun] = useState<RunData | null>(null);
-  const [handle] = useState(() => delayRender("run.json"));
+  const [handle] = useState(() => delayRender("run_replay_extended.json"));
 
   useEffect(() => {
-    fetch(staticFile("run.json"))
+    fetch(staticFile("run_replay_extended.json"))
       .then((r) => r.json() as Promise<RunData>)
       .then((data) => {
         setRun(data);
         continueRender(handle);
       })
       .catch((err) => {
-        console.error("Failed to load run.json", err);
+        console.error("Failed to load run_replay_extended.json", err);
         continueRender(handle);
       });
   }, [handle]);
@@ -42,7 +42,7 @@ export const LetheDemo: React.FC = () => {
       <AbsoluteFill
         style={{background: BG, fontFamily: FONT_MONO, color: TEXT_DIM}}
       >
-        <div style={{padding: 48}}>loading run.json...</div>
+        <div style={{padding: 48}}>loading run_replay_extended.json...</div>
       </AbsoluteFill>
     );
   }
