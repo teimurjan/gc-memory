@@ -1,0 +1,439 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{natbib}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{microtype}
+\usepackage{graphicx}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{Clustered Retrieval-Induced Forgetting for Long-Term\\Conversational Memory}
+
+\author{%
+  Teimur Gasanov\\
+  \texttt{me@teimurjan.dev}\footnote{Correspondence: \texttt{me@teimurjan.dev}. Code and full experiment logs: \url{https://github.com/teimurjan/lethe}.}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We study retrieval quality for long-term conversational memory, where an agent must recall information from a corpus of hundreds of thousands of turns accumulated over arbitrary time. A standard hybrid pipeline combining BM25, dense vector retrieval, and cross-encoder reranking forms a strong baseline on this task, but exhibits a characteristic failure mode: certain irrelevant entries are repeatedly selected as false positives for semantically similar queries. We propose \emph{clustered retrieval-induced forgetting} (clustered RIF), a cue-dependent suppression mechanism adapted from the cognitive-psychology literature on memory retrieval. After each retrieval, candidates that were highly ranked by the bi-encoder stage but rejected by the cross-encoder accumulate a suppression score, scoped per query cluster. Future retrievals in the same cluster apply these scores as penalties before reranking. We further refine the suppression rule with a \emph{rank-gap} formula that penalizes only entries whose initial rank exceeded their post-rerank rank, avoiding penalties on close losers. On LongMemEval S (199{,}509 turns, 500 evaluation queries), clustered RIF yields $+5.8\%$ NDCG@10 and $+6.8\%$ recall@30 over the static hybrid baseline with a paired permutation $p < 0.002$; an additional rank-gap refinement improves the point estimate to $+6.5\%$ NDCG and $+9.5\%$ recall, with the NDCG portion of that refinement not individually significant at $n=500$. On NFCorpus, a non-conversational medical IR benchmark, the same mechanism does not transfer: three of four variants significantly regress against the baseline, and the best variant is statistically indistinguishable from it. We argue this is evidence that the mechanism is workload-specific: it targets the chronic-false-positive pattern characteristic of a single user's long-term conversation stream, not general ad-hoc retrieval. A behavior-level decomposition indicates the improvement comes entirely from reducing cross-topic retrieval errors (\emph{wrong\_family}) rather than from within-session discrimination. We release an open-source implementation and seventeen checkpoints of experimental logs, including negative results for direct embedding mutation and sparse distributed memory.
+\end{abstract}
+
+\section{Introduction}
+
+Long-term memory for conversational agents differs from standard information retrieval in two ways. First, the corpus is not a fixed curated collection but a stream of session transcripts that grows continuously. Second, queries are not issued by a diverse population but by a single user (or a small set) whose information needs repeat, overlap, and shift over time. These properties introduce a failure mode rarely present in evaluations built around fresh random queries: the same irrelevant entry is retrieved across many semantically similar queries and never becomes less likely to be retrieved, because the retrieval state is memoryless with respect to past decisions.
+
+This paper studies one mechanism for addressing that failure mode. We adapt \emph{retrieval-induced forgetting} (RIF), a phenomenon first described in cognitive psychology by \citet{anderson1994rif}, to a modern dense-sparse hybrid retrieval pipeline. RIF describes a pattern in human memory where retrieving one item actively suppresses competing items that were activated but not selected. In a pipeline that reranks bi-encoder candidates with a cross-encoder, a directly analogous situation arises at every query: the top-$k$ candidates from the bi-encoder are the ``activated'' items, and the cross-encoder's final top results are the ``selected'' ones. The rest are \emph{activated-but-not-selected}, which in the cognitive model are suppressed going forward.
+
+Applied na\"ively as a per-entry scalar suppression score, RIF gives only marginal improvement ($+1.1\%$ NDCG@10 in our experiments). The issue is well-predicted by \citet{raaijmakers1981sam}'s SAM model of memory retrieval, which argues that suppression should be \emph{cue-dependent}: an item suppressed in the context of one retrieval cue should not be suppressed when a different cue is active. We implement this by clustering query embeddings and maintaining per-(entry, cluster) suppression scores. Suppression applied for ``travel-related'' queries does not affect retrieval for ``food-related'' queries. With 30 clusters on LongMemEval, this lifts the gain to $+5.8\%$.
+
+We further refine the update rule by observing that not every losing candidate in a retrieval round was meaningfully in competition for the top. We introduce a \emph{rank-gap} formulation that penalizes an entry only when its bi-encoder rank was above its post-rerank rank (that is, it actually dropped) and its cross-encoder score was low. This suppresses 30\% fewer entries than a uniform rule while showing consistently better point estimates ($+6.5\%$ NDCG@10 and $+9.5\%$ recall@30, vs. $+5.8\%$ / $+6.8\%$ for the uniform rule). On a 500-query evaluation, the incremental benefit of rank-gap over uniform is not individually significant for NDCG ($p=0.55$) and borderline for recall ($p=0.06$); we report the numbers as reflecting a plausible refinement whose significance requires more data.
+
+Our contributions are:
+\begin{enumerate}
+  \item A cue-dependent suppression mechanism for retrieval pipelines, grounded in the cognitive science of RIF, that operates as a lightweight state update after each retrieval and requires no model retraining.
+  \item A rank-gap refinement to the suppression update rule that improves gains while suppressing fewer entries.
+  \item A behavior-level decomposition showing the mechanism improves cross-topic discrimination (\emph{wrong\_family}) without affecting within-session discrimination (\emph{sibling\_confusion}) or temporal awareness (\emph{stale\_fact}).
+  \item An evaluation on the full 199{,}509-turn LongMemEval S corpus at turn-level granularity, matching the needle-in-haystack scale characteristic of real long-term memory, rather than the per-query fresh-database recall@5 setup common in other ``agent memory'' evaluations.
+\end{enumerate}
+
+\section{Background}
+
+\subsection{Retrieval-induced forgetting}
+
+RIF is an empirically well-established phenomenon in human memory. In the retrieval-practice paradigm of \citet{anderson1994rif}, participants study a list of category-exemplar pairs, practice retrieving a subset (strengthening those items), then are tested on the full list. Items in the same categories as the practiced items but not themselves practiced are recalled worse than control items from unrelated categories. The effect is cue-dependent: suppression is tied to the retrieval context, not to the item's intrinsic properties.
+
+\citet{raaijmakers1981sam} formalize this as the Search of Associative Memory (SAM) model. Retrieval probability for an item depends on the match between available retrieval cues and stored item-cue associations. Retrieving an item in one cue context updates its cue-specific associations independently of other cue contexts.
+
+These mechanisms have not previously been adapted as a learned component of a production retrieval pipeline, to our knowledge.
+
+\subsection{Hybrid retrieval pipelines}
+
+We use a standard three-stage pipeline as the baseline:
+
+\begin{enumerate}
+  \item \textbf{Sparse lexical retrieval.} BM25 \citep{robertson1995okapi} over the token representation of each memory chunk.
+  \item \textbf{Dense vector retrieval.} Pretrained sentence embeddings with inner-product search in FAISS \citep{johnson2019faiss}. We use the \texttt{all-MiniLM-L6-v2} bi-encoder \citep{reimers2019sbert} at 384 dimensions.
+  \item \textbf{Reciprocal rank fusion} (RRF, \citealp{cormack2009rrf}) to merge the BM25 and dense candidate lists into a single shallow pool.
+  \item \textbf{Cross-encoder reranking.} A cross-encoder trained on MS MARCO (\texttt{ms-marco-MiniLM-L-6-v2}, \citealp{nogueira2019msmarco}) scores each $(q, d)$ pair directly and re-sorts the pool.
+\end{enumerate}
+
+The cross-encoder dominates end-to-end quality at this scale: on LongMemEval, adding cross-encoder reranking to a vector-only pipeline raises NDCG@10 from $0.1376$ to $0.2217$, a $+63\%$ improvement. BM25 alone achieves $0.2420$, outperforming pretrained dense retrieval on this corpus because long-term memory questions frequently reference specific entities, names, and timestamps that are exact-match tokens.
+
+\section{Method}
+
+\subsection{Notation}
+
+Let $\mathcal{D}$ be the corpus. For a query $q$, let $\mathrm{pool}(q) = \{d_1, \dots, d_P\}$ be the RRF-merged candidate list from BM25 and dense retrieval, of size $P$ (shallow pool, typically $P=30$; $P=200$ for adaptive deep pass). Let $r_{\text{init}}(d_i, q)$ be the rank of $d_i$ in $\mathrm{pool}(q)$, and $r_{\text{final}}(d_i, q)$ be the rank after cross-encoder reranking. Let $s_{\text{xenc}}(d_i, q) \in \mathbb{R}$ be the cross-encoder score.
+
+We assume query embeddings $\mathbf{q} \in \mathbb{R}^{384}$ are available from the bi-encoder used for dense retrieval, and that a fixed set of cluster centroids $\{\mathbf{c}_1, \dots, \mathbf{c}_K\}$ has been computed from a bootstrap buffer of previously seen queries via $k$-means.
+
+\subsection{Clustered RIF update rule}
+
+Each entry $d_i$ is associated with a suppression vector $\mathbf{s}(d_i) \in \mathbb{R}^K$, one scalar per query cluster, initialized to zero. Retrieval proceeds in three steps:
+
+\begin{enumerate}
+  \item Compute $\mathrm{pool}(q)$ and identify $c(q) = \arg\max_k \mathbf{q}^\top \mathbf{c}_k$ (the closest cluster to the query).
+  \item Apply the suppression penalty to RRF scores: $\tilde s_{\text{RRF}}(d_i, q) = s_{\text{RRF}}(d_i, q) - \alpha \cdot s(d_i)_{c(q)}$, where $\alpha$ is a hyperparameter controlling suppression strength.
+  \item Rerank the top-$P$ candidates by adjusted RRF score, pass to the cross-encoder, and return the final top-$k$.
+\end{enumerate}
+
+After each retrieval, we update the suppression scores for entries in the pool. The update rule is the subject of Section~\ref{sec:rank-gap}.
+
+\subsection{Rank-gap update rule}
+\label{sec:rank-gap}
+
+A natural update rule penalizes every entry in the pool that was not selected by the cross-encoder, weighted by how well it initially ranked. We implement this as a baseline:
+\begin{equation}
+  \Delta s(d_i)_{c(q)} = \eta \left(1 - \frac{r_{\text{init}}(d_i, q)}{P}\right) \cdot \sigma(-s_{\text{xenc}}(d_i, q))
+  \label{eq:rif-uniform}
+\end{equation}
+where $\sigma$ is the sigmoid and $\eta$ is a learning rate. This formulation assigns penalty mass to every pool entry that ranks high initially and scores low after reranking.
+
+The uniform rule overpenalizes entries that legitimately lost a close race. An entry whose bi-encoder rank was 5 and whose post-rerank rank is 6 did not behave as a strong competitor. We propose the \emph{rank-gap} rule:
+\begin{equation}
+  \Delta s(d_i)_{c(q)} = \eta \cdot \frac{\max\bigl(0,\, r_{\text{final}}(d_i, q) - r_{\text{init}}(d_i, q)\bigr)}{P} \cdot \sigma(-s_{\text{xenc}}(d_i, q))
+  \label{eq:rif-gap}
+\end{equation}
+Only entries that \emph{dropped} in rank contribute suppression mass, and the mass is proportional to the size of the drop. An entry that dropped from rank 2 to rank 20 (signaling the cross-encoder strongly disagreed with the bi-encoder) contributes more than an entry that dropped from rank 2 to rank 4.
+
+Algorithm~\ref{alg:clustered-rif} summarizes the full procedure.
+
+\begin{algorithm}[ht]
+\caption{Retrieve with clustered RIF + rank-gap suppression}
+\label{alg:clustered-rif}
+\begin{algorithmic}[1]
+\Require query $q$, corpus $\mathcal{D}$, cluster centroids $\{\mathbf{c}_k\}$, suppression scores $\mathbf{s}$, hyperparameters $\alpha, \eta, P, k$
+\State $\mathbf{q} \gets \mathrm{BiEncode}(q)$
+\State $c \gets \arg\max_k \mathbf{q}^\top \mathbf{c}_k$
+\State $\mathrm{pool} \gets \mathrm{RRF}(\mathrm{BM25}(q), \mathrm{Dense}(\mathbf{q}))[:P]$
+\State For each $d_i$ in $\mathrm{pool}$: $\tilde s_{\text{RRF}}(d_i) \gets s_{\text{RRF}}(d_i) - \alpha \cdot s(d_i)_c$
+\State Re-sort $\mathrm{pool}$ by $\tilde s_{\text{RRF}}$. Record initial ranks $r_{\text{init}}$.
+\State Compute $s_{\text{xenc}}(d_i, q)$ for each $d_i \in \mathrm{pool}$.
+\State Sort by $s_{\text{xenc}}$ to obtain final ranks $r_{\text{final}}$.
+\State Return top-$k$ by $s_{\text{xenc}}$.
+\Statex
+\Comment{Update suppression after returning results}
+\For{$d_i$ in $\mathrm{pool}$}
+  \State $\Delta \gets \eta \cdot \max(0, r_{\text{final}}(d_i) - r_{\text{init}}(d_i))/P \cdot \sigma(-s_{\text{xenc}}(d_i))$
+  \State $s(d_i)_c \gets s(d_i)_c + \Delta$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Cluster bootstrap}
+
+Cluster centroids are computed once, on a buffer of the first $N_{\text{bootstrap}} = 10K$ query embeddings observed by the system, and then frozen. We use $K=30$ clusters; sensitivity to this choice is analyzed in Section~\ref{sec:results}. Suppression vectors are initialized to zero and persist across sessions.
+
+\section{Experimental Setup}
+
+\subsection{Dataset}
+
+We evaluate on LongMemEval S \citep{wu2024longmemeval}, a benchmark for long-term conversational memory containing 199{,}509 dialog turns from 500 evaluation questions. Each question has a set of relevant turns (qrels), and the retrieval task is needle-in-haystack at the turn level against the full 199k-turn corpus. We use the standard 200-query evaluation sample for ablations and the full 500-query set for the final numbers.
+
+The primary metric is NDCG@10. We also report Recall@30 and a behavior-level decomposition described in Section~\ref{sec:behavior}. For the main-results table we report 95\% bootstrap percentile confidence intervals on the mean metrics (10{,}000 resamples) and two-sided paired permutation test $p$-values on the per-query differences (10{,}000 permutations).
+
+\subsection{Methodology note}
+
+We emphasize that all numbers below are measured at turn-level retrieval against the full 199{,}509-turn corpus, corresponding to a random baseline of $0.005\%$ for top-1. Other recent ``agent memory'' benchmarks commonly report recall@5 on per-query fresh databases of approximately 50 sessions at session granularity, which corresponds to a random baseline of $\sim 10\%$, and some implementations additionally leak ground truth via annotation fields indexed at write time. The two methodologies differ by roughly three orders of magnitude in difficulty, and reported numbers are not directly comparable across them.
+
+\subsection{Baseline}
+
+Our baseline is the hybrid pipeline of Section~2.2: BM25 + dense RRF + cross-encoder reranking, with cosine-similarity deduplication at corpus build time at threshold $0.95$. No learned suppression. This baseline achieves $0.2960$ NDCG@10 on the full 500-query evaluation at shallow $P=30$, and $0.3680$ on a separate 200-query sample with adaptive depth (shallow $P=30$ with deep-pass fallback to $P=200$ when cross-encoder confidence is below threshold). All statistical tests in Section~\ref{sec:results} use the $P=30$ configuration at 500 queries.
+
+\subsection{Configurations}
+
+We compare four variants:
+\begin{itemize}
+  \item \textbf{Baseline.} Hybrid + xenc, no suppression.
+  \item \textbf{Global RIF.} Uniform-rule suppression (Eq.~\ref{eq:rif-uniform}), single scalar per entry ($K=1$).
+  \item \textbf{Clustered RIF.} Uniform rule, $K=30$ clusters.
+  \item \textbf{Clustered RIF + rank-gap.} Rank-gap rule (Eq.~\ref{eq:rif-gap}), $K=30$.
+\end{itemize}
+
+Hyperparameters: $\alpha = 0.3$ (suppression strength), $\eta = 0.1$ (suppression learning rate). Both selected by a coarse sweep described in Section~\ref{sec:results}. Cluster bootstrap runs on the first 2{,}000 retrievals; evaluation begins at 3{,}000 retrievals.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Main result}
+
+Table~\ref{tab:main} reports retrieval quality for each variant, along with 95\% bootstrap confidence intervals (10{,}000 resamples) on the mean metrics, paired $\Delta$s against the baseline with CIs on the per-query difference, and two-sided paired permutation test $p$-values (10{,}000 permutations).
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Retrieval quality on LongMemEval S (full 500-query evaluation, 199{,}509-turn corpus) with 5{,}000-step burn-in. Values in brackets are 95\% bootstrap percentile CIs. $\Delta$ columns report mean per-query differences vs. the baseline with 95\% CIs, and $p$ is a two-sided paired permutation test. All variants use the same hybrid BM25 + dense + cross-encoder pipeline; they differ only in the suppression mechanism applied pre-rerank.}
+\label{tab:main}
+\begin{tabular}{lccc}
+\toprule
+Configuration & NDCG@10 [95\% CI] & $\Delta$ NDCG [95\% CI] & $p$ (perm) \\
+\midrule
+Baseline (no suppression) & 0.2960 [0.2647, 0.3281] & --- & --- \\
+Global RIF (uniform) & 0.2992 [0.2671, 0.3311] & $+0.0032$ [$-0.0097$, $+0.0161$] & 0.622 \\
+Global RIF (rank-gap) & 0.3038 [0.2713, 0.3364] & $+0.0079$ [$-0.0034$, $+0.0192$] & 0.175 \\
+Clustered RIF, $K=30$ (uniform) & 0.3132 [0.2814, 0.3453] & $+0.0173$ [$+0.0063$, $+0.0285$] & $\mathbf{0.002}$ \\
+\textbf{Clustered RIF, $K=30$ (rank-gap)} & \textbf{0.3152} [0.2836, 0.3473] & $\mathbf{+0.0192}$ [$+0.0102$, $+0.0292$] & $\mathbf{0.0001}$ \\
+\midrule
+Configuration & Recall@30 [95\% CI] & $\Delta$ Recall [95\% CI] & $p$ (perm) \\
+\midrule
+Baseline & 0.4103 [0.3727, 0.4487] & --- & --- \\
+Global RIF (uniform) & 0.4142 [0.3754, 0.4534] & $+0.0039$ [$-0.0173$, $+0.0240$] & 0.720 \\
+Global RIF (rank-gap) & 0.4258 [0.3864, 0.4649] & $+0.0155$ [$-0.0042$, $+0.0359$] & 0.133 \\
+Clustered RIF, $K=30$ (uniform) & 0.4381 [0.3996, 0.4776] & $+0.0278$ [$+0.0109$, $+0.0449$] & $\mathbf{0.0009}$ \\
+\textbf{Clustered RIF, $K=30$ (rank-gap)} & \textbf{0.4494} [0.4109, 0.4888] & $\mathbf{+0.0391}$ [$+0.0217$, $+0.0566$] & $\mathbf{0.0001}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The pattern that emerges is cleaner than the raw point estimates suggest. Cue-dependent clustering is the load-bearing component: both clustered variants show statistically significant gains over the baseline on both NDCG@10 and Recall@30 ($p \leq 0.002$), and both global variants do not (NDCG $p$-values of $0.62$ and $0.18$, Recall $p$-values of $0.72$ and $0.13$; all four confidence intervals on the paired $\Delta$ cross zero). A Bonferroni correction for the four baseline comparisons leaves the clustered results clearly significant ($p_{\text{adj}} < 0.01$ for both) and the global results decisively not.
+
+The incremental contribution of the rank-gap refinement on top of clustered RIF is less clear at this sample size. A separate pairwise test (\texttt{clustered30-rank-gap} vs.\ \texttt{clustered30-uniform}) yields $\Delta$ NDCG $= +0.0020$ [$-0.0034$, $+0.0090$], $p = 0.548$, and $\Delta$ Recall $= +0.0112$ [$+0.0002$, $+0.0232$], $p = 0.055$. The direction is consistent with our hypothesis, and the recall effect is at the edge of significance, but a single-dataset 500-query evaluation cannot resolve whether rank-gap is a real improvement over the uniform rule or noise. We discuss this explicitly in Section~\ref{sec:limitations}.
+
+The practical takeaway from this table is that the \emph{clustering} of suppression by query context, not the specific form of the update rule, is what drives the improvement. Rank-gap does suppress $30\%$ fewer entries than the uniform rule on average (8,166 vs.\ 5,141 total suppressed entries at the end of burn-in for the clustered $K=30$ variants), which is an efficiency and interpretability win even when the quality delta is noise-sized.
+
+\subsection{Cluster count sensitivity}
+
+Table~\ref{tab:cluster-sweep} shows NDCG@10 as a function of the number of clusters $K$, with the uniform update rule.
+
+\begin{table}[ht]
+\centering
+\caption{Effect of cluster count $K$ on clustered RIF with uniform update rule.}
+\label{tab:cluster-sweep}
+\begin{tabular}{lcc}
+\toprule
+$K$ & NDCG@10 & $\Delta$ vs. baseline \\
+\midrule
+1 (global) & 0.2993 & $+1.1\%$ \\
+10 & 0.3113 & $+5.2\%$ \\
+\textbf{30} & \textbf{0.3132} & $\mathbf{+5.8\%}$ \\
+50 & 0.3067 & $+3.6\%$ \\
+100 & 0.3092 & $+4.5\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The relationship is non-monotonic. $K=10$ is too coarse: query topics overlap within a single cluster and suppression intended for one topic propagates to an unrelated one. $K=100$ dilutes the signal: each cluster sees too few queries to accumulate reliable suppression mass. $K=30$ balances these, corresponding to approximately 17 queries per cluster in our 500-query evaluation.
+
+\subsection{Behavior-level decomposition}
+\label{sec:behavior}
+
+NDCG@10 aggregates multiple distinct failure modes. We define four behavior-level metrics, following the categorization of retrieval errors in \citet{wu2024longmemeval}:
+
+\begin{itemize}
+  \item \textbf{exact\_episode}: the top-1 result is in the qrels set.
+  \item \textbf{wrong\_family}: the top-1 result is from a session that contains no relevant turns (cross-topic error).
+  \item \textbf{sibling\_confusion}: the top-1 result is from the correct session but is not the relevant turn (within-session error).
+  \item \textbf{stale\_fact}: for knowledge-update queries, the top-1 is an older version of the correct fact.
+  \item \textbf{abstain@T}: the fraction of queries where the top-1 cross-encoder score falls below confidence threshold $T$.
+\end{itemize}
+
+Table~\ref{tab:behavior} shows the decomposition for the final variant against the baseline, on the full 500-query evaluation with 5{,}000-step burn-in.
+
+\begin{table}[ht]
+\centering
+\caption{Behavior-level decomposition of the NDCG@10 gain. Lower is better for \emph{wrong\_family}, \emph{sibling\_confusion}, \emph{stale\_fact}, and \emph{abstain@2}.}
+\label{tab:behavior}
+\begin{tabular}{lccc}
+\toprule
+Metric & Baseline & + Clustered RIF (gap) & $\Delta$ \\
+\midrule
+exact\_episode & 0.208 & 0.222 & $+0.014$ \\
+NDCG@10 & 0.293 & 0.316 & $+0.023$ \\
+\textbf{wrong\_family} & \textbf{0.688} & \textbf{0.672} & $\mathbf{-0.016}$ \\
+sibling\_confusion & 0.104 & 0.106 & $+0.002$ \\
+stale\_fact & 0.205 & 0.205 & $0.000$ \\
+abstain@2 & 0.324 & 0.310 & $-0.014$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The $+1.4$ percentage point gain in \emph{exact\_episode} is accounted for entirely by the $-1.6$ percentage point reduction in \emph{wrong\_family}. \emph{Sibling\_confusion} does not move: clustered RIF has no mechanism for within-session discrimination, which depends on embedding-level granularity. \emph{Stale\_fact} does not move either: clustered RIF has no temporal component. The abstention rate drops by $1.4$ percentage points, indicating the cross-encoder's top-1 confidence is slightly higher under suppression, consistent with the reduction in wrong-family distractors.
+
+This decomposition sharpens the interpretation of the mechanism. Clustered RIF is a cross-topic noise reduction method. Claims that it improves ``retrieval quality'' in general should be qualified: other failure modes (granularity, temporality) need other mechanisms.
+
+\subsection{Generalization: NFCorpus}
+\label{sec:nfcorpus}
+
+To test whether the mechanism transfers beyond long-term conversational memory, we run the same five configurations on NFCorpus \citep{boteva2016nfcorpus}, a medical IR benchmark in BEIR (3,633 documents, 323 queries with graded relevance). Hyperparameters and update rules are identical; burn-in is reduced to 3,000 steps because the query pool is 323 items and with-replacement sampling already gives each query roughly nine exposures.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{NFCorpus results (323-query eval, 3,633-doc corpus) with identical configurations to Table~\ref{tab:main}. $p$ is a two-sided paired permutation test (10,000 permutations). Three of four RIF variants significantly regress against the baseline; the fourth is statistically indistinguishable from it. The mechanism does not transfer.}
+\label{tab:nfcorpus}
+\begin{tabular}{lccc}
+\toprule
+Configuration & NDCG@10 [95\% CI] & $\Delta$ NDCG [95\% CI] & $p$ (perm) \\
+\midrule
+Baseline (no suppression) & 0.3462 [0.3120, 0.3812] & --- & --- \\
+Global RIF (uniform) & 0.3198 [0.2857, 0.3536] & $\mathbf{-0.0264}$ [$-0.0398$, $-0.0144$] & $\mathbf{0.0001}$ \\
+Global RIF (rank-gap) & 0.3341 [0.2998, 0.3698] & $\mathbf{-0.0121}$ [$-0.0219$, $-0.0035$] & $\mathbf{0.007}$ \\
+Clustered RIF, $K=30$ (uniform) & 0.3247 [0.2911, 0.3595] & $\mathbf{-0.0215}$ [$-0.0352$, $-0.0100$] & $\mathbf{0.0002}$ \\
+Clustered RIF, $K=30$ (rank-gap) & 0.3423 [0.3077, 0.3774] & $-0.0039$ [$-0.0101$, $+0.0021$] & 0.199 \\
+\midrule
+Configuration & Recall@30 [95\% CI] & $\Delta$ Recall [95\% CI] & $p$ (perm) \\
+\midrule
+Baseline & 0.2131 [0.1861, 0.2413] & --- & --- \\
+Global RIF (uniform) & 0.1905 [0.1650, 0.2172] & $\mathbf{-0.0226}$ [$-0.0353$, $-0.0120$] & $\mathbf{0.0001}$ \\
+Global RIF (rank-gap) & 0.1998 [0.1740, 0.2284] & $\mathbf{-0.0133}$ [$-0.0248$, $-0.0022$] & $\mathbf{0.014}$ \\
+Clustered RIF, $K=30$ (uniform) & 0.1838 [0.1583, 0.2099] & $\mathbf{-0.0294}$ [$-0.0463$, $-0.0140$] & $\mathbf{0.0001}$ \\
+Clustered RIF, $K=30$ (rank-gap) & 0.2036 [0.1764, 0.2319] & $-0.0095$ [$-0.0215$, $+0.0022$] & 0.115 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The pattern inverts cleanly. Under identical configuration, three variants significantly hurt both NDCG and Recall ($p \leq 0.02$), and the fourth (clustered + rank-gap) matches baseline within noise. Clustered RIF's LongMemEval advantage does not transfer.
+
+\textbf{Diagnosis: corpus saturation.} During NFCorpus burn-in, suppression state grows to cover roughly 70\% of the corpus (2,521 of 3,633 entries for global-original, 2,714 for clustered30-original accumulated across 30 clusters). On LongMemEval the same 3,000 steps touch only around 4\% of the 199,509-turn corpus. NFCorpus has a fixed 323-query pool sampled with replacement, so each query is seen roughly nine times during burn-in. The same 30 candidates return as losers on each repetition, compounding suppression on entries that may actually be relevant to held-out queries. The corpus is small enough and the query pool homogeneous enough that suppression pathologically saturates.
+
+\textbf{Diagnosis: workload mismatch.} The mechanism was motivated by chronic-false-positive patterns across semantically similar queries from a single user's long-term conversation. NFCorpus queries are independent medical questions with no shared user context. Cue-dependent suppression requires that ``cues'' correspond to recurring information needs. On NFCorpus, query clusters are closer to static topic labels than to recurring retrieval intents, and suppression applied within those clusters does not generalize across queries that happen to share a cluster assignment.
+
+\textbf{Implication for scope.} The mechanism improves retrieval on the workload it was designed for (a single user's long-term memory, where the same kinds of questions recur and chronic distractors accumulate) and does not improve, and can hurt, retrieval on ad-hoc IR where queries are independent. We claim this as the contribution's scope in the remainder of the paper.
+
+\section{Related Work}
+
+\paragraph{Memory for conversational agents.} Recent systems for long-term LLM memory include MemoryBank~\citep{zhong2024memorybank}, which uses a hierarchical summarization and forgetting schedule inspired by Ebbinghaus curves, and a growing set of open-source memory plugins for coding and dialog agents. To our knowledge none of these implement cue-dependent suppression as a per-retrieval state update.
+
+\paragraph{Query clustering for retrieval.} The cluster hypothesis in information retrieval \citep{vanrijsbergen1979information} motivates a long line of work on grouping documents by topic. A separate tradition, starting with \citet{beeferman2000agglomerative} and \citet{wen2002clustering}, instead clusters queries, typically for log analysis, query expansion, or intent classification. Our use of query clustering differs in that we do not change what is retrieved for a given cluster; we change how strongly past retrieval outcomes penalize candidates for future queries in the same cluster.
+
+\paragraph{Retrieval-induced forgetting in cognitive psychology.} RIF has been extensively studied since \citet{anderson1994rif}. The SAM model of \citet{raaijmakers1981sam} provides the theoretical basis for cue-dependent suppression, which we adapt directly.
+
+\paragraph{Sparse distributed memory.} As a related but distinct approach to long-term memory, we also implemented Kanerva's sparse distributed memory~\citep{kanerva1988sdm} from scratch and evaluated it on a synthetic episodic benchmark. Dense cosine retrieval with FAISS outperformed SDM and SDM-with-cleanup on every noise mode tested; full results are in the open-source repository.
+
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Scope: workload-specific.} Section~\ref{sec:nfcorpus} shows that the mechanism does not transfer to NFCorpus, and we argue the failure mode is structural: the chronic-false-positive pattern that clustered RIF targets is characteristic of a single user's accumulating long-term conversation, not of independent queries in ad-hoc retrieval. We make no claim beyond long-term conversational memory. Replicating on another benchmark in the same workload family (e.g., a different long-term conversation memory dataset~\citep{yang2018hotpotqa}) remains valuable but would test a different question than NFCorpus does.
+
+\paragraph{Rank-gap refinement not individually significant.} As reported in Section~\ref{sec:results}, the incremental benefit of the rank-gap update rule over the uniform rule within clustered RIF is $+0.0020$ NDCG ($p=0.55$) and $+0.0112$ recall ($p=0.055$) on the 500-query evaluation. The direction is consistent, but we cannot at this sample size distinguish the refinement from noise for NDCG, and recall is only borderline. We report it because (i) it suppresses $30\%$ fewer entries per retrieval, which is an efficiency and interpretability win independent of the quality metric, and (ii) its behavior-level effect on \emph{wrong\_family} reduction is consistent with the mechanism we proposed. A larger evaluation (or a different benchmark) is needed to settle its significance.
+
+\paragraph{Within-session and temporal failure modes.} As shown in Section~\ref{sec:behavior}, clustered RIF does not improve \emph{sibling\_confusion} or \emph{stale\_fact}. Mechanisms targeting these failure modes (session-structured reranking, temporal-aware tie breaking, explicit fact extraction with validity windows) remain open.
+
+\paragraph{Cluster bootstrap cost.} The mechanism requires collecting a buffer of queries before clustering. Cold-start systems receive no benefit until the bootstrap completes. In our implementation this is 2{,}000 retrievals; tuning this downward may be possible with online clustering updates.
+
+\paragraph{Fixed clustering.} We freeze clusters after bootstrap. Adapting clusters online as query distributions shift is not evaluated here.
+
+\section{Conclusion}
+
+Cue-dependent retrieval-induced forgetting, implemented as per-cluster suppression scores applied to the bi-encoder candidate pool before cross-encoder reranking, produces a statistically significant improvement in retrieval quality on LongMemEval S: $+5.8\%$ NDCG@10 and $+6.8\%$ recall@30 over a strong hybrid baseline ($p < 0.002$). A rank-gap refinement to the update rule pushes point estimates to $+6.5\%$ and $+9.5\%$ respectively while suppressing $30\%$ fewer entries, but its incremental benefit is not individually significant at $n=500$. Global (cue-independent) RIF does not significantly improve over the baseline on either metric.
+
+The mechanism is workload-specific. On NFCorpus, a medical IR benchmark without the chronic-false-positive structure of conversational memory, three of four variants significantly regress against the baseline and the fourth is indistinguishable from it. We trace the failure to corpus saturation (the same fixed query pool produces cumulative suppression over a small corpus) and workload mismatch (queries in ad-hoc IR do not share recurring information needs in the way a single user's conversation stream does). Behavior-level analysis on the conversational setting shows that RIF's gain is specifically cross-topic noise reduction rather than general quality improvement, which bounds the scope in which the mechanism is applicable.
+
+The contribution is framed narrowly: clustered RIF is the retrieval-only best component of a larger system. Several other components of the full pipeline (write-time LLM enrichment, lifecycle-based index compaction, multi-project federation via read-only DuckDB ATTACH) are outside the scope of this paper and are documented in the open-source repository.
+
+\section*{Reproducibility}
+
+Source code, the seventeen research checkpoints including negative results, per-run NDCG traces, and evaluation scripts are available at \url{https://github.com/teimurjan/lethe}. The evaluation uses LongMemEval S with its standard split and qrels. The main-results table can be reproduced end-to-end with:
+\begin{verbatim}
+# LongMemEval S (main result):
+uv run python benchmarks/run_rif_gap.py
+uv run python benchmarks/bootstrap_rif_gap_ci.py
+
+# NFCorpus (generalization test):
+uv run python benchmarks/run_rif_gap_nfcorpus.py
+uv run python benchmarks/bootstrap_rif_gap_ci.py \
+    --input  benchmarks/results/rif_gap_per_query_nfcorpus.json \
+    --output benchmarks/results/rif_gap_nfcorpus_ci.md
+\end{verbatim}
+The per-query NDCG arrays are saved to \texttt{benchmarks/results/rif\_gap\_per\_query*.json} so any statistical test can be reproduced without re-running the benchmarks (roughly 100 minutes for LongMemEval and 25 minutes for NFCorpus on a modern laptop).
+
+\begin{thebibliography}{99}
+
+\bibitem[Anderson et al.(1994)]{anderson1994rif}
+Michael C.\ Anderson, Robert A.\ Bjork, and Elizabeth L.\ Bjork.
+\newblock Remembering can cause forgetting: Retrieval dynamics in long-term memory.
+\newblock \emph{Journal of Experimental Psychology: Learning, Memory, and Cognition}, 20(5):1063--1087, 1994.
+
+\bibitem[Beeferman and Berger(2000)]{beeferman2000agglomerative}
+Doug Beeferman and Adam Berger.
+\newblock Agglomerative clustering of a search engine query log.
+\newblock In \emph{Proceedings of the 6th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)}, pages 407--416, 2000.
+
+\bibitem[Boteva et al.(2016)]{boteva2016nfcorpus}
+Vera Boteva, Demian Gholipour, Artem Sokolov, and Stefan Riezler.
+\newblock A full-text learning to rank dataset for medical information retrieval.
+\newblock In \emph{Proceedings of the 38th European Conference on Information Retrieval (ECIR)}, pages 716--722, 2016.
+
+\bibitem[Cormack et al.(2009)]{cormack2009rrf}
+Gordon V.\ Cormack, Charles L.\ A.\ Clarke, and Stefan B\"uttcher.
+\newblock Reciprocal rank fusion outperforms Condorcet and individual rank learning methods.
+\newblock In \emph{SIGIR '09: Proceedings of the 32nd International ACM SIGIR Conference}, pages 758--759, 2009.
+
+\bibitem[Johnson et al.(2019)]{johnson2019faiss}
+Jeff Johnson, Matthijs Douze, and Herv\'e J\'egou.
+\newblock Billion-scale similarity search with GPUs.
+\newblock \emph{IEEE Transactions on Big Data}, 7(3):535--547, 2019.
+
+\bibitem[Kanerva(1988)]{kanerva1988sdm}
+Pentti Kanerva.
+\newblock \emph{Sparse Distributed Memory}.
+\newblock MIT Press, Cambridge, MA, 1988.
+
+\bibitem[Nogueira and Cho(2019)]{nogueira2019msmarco}
+Rodrigo Nogueira and Kyunghyun Cho.
+\newblock Passage re-ranking with BERT.
+\newblock \emph{arXiv preprint arXiv:1901.04085}, 2019.
+
+\bibitem[Raaijmakers and Shiffrin(1981)]{raaijmakers1981sam}
+Jeroen G.\ Raaijmakers and Richard M.\ Shiffrin.
+\newblock Search of associative memory.
+\newblock \emph{Psychological Review}, 88(2):93--134, 1981.
+
+\bibitem[Reimers and Gurevych(2019)]{reimers2019sbert}
+Nils Reimers and Iryna Gurevych.
+\newblock Sentence-BERT: Sentence embeddings using Siamese BERT-networks.
+\newblock In \emph{Proceedings of EMNLP-IJCNLP}, pages 3982--3992, 2019.
+
+\bibitem[Robertson et al.(1995)]{robertson1995okapi}
+Stephen E.\ Robertson, Steve Walker, Susan Jones, Micheline Hancock-Beaulieu, and Mike Gatford.
+\newblock Okapi at TREC-3.
+\newblock In \emph{Proceedings of TREC-3}, pages 109--126, 1995.
+
+\bibitem[van Rijsbergen(1979)]{vanrijsbergen1979information}
+C.\ J.\ van Rijsbergen.
+\newblock \emph{Information Retrieval}.
+\newblock Butterworth-Heinemann, London, 2nd edition, 1979.
+
+\bibitem[Wen et al.(2002)]{wen2002clustering}
+Ji-Rong Wen, Jian-Yun Nie, and Hong-Jiang Zhang.
+\newblock Query clustering using user logs.
+\newblock \emph{ACM Transactions on Information Systems}, 20(1):59--81, 2002.
+
+\bibitem[Wu et al.(2024)]{wu2024longmemeval}
+Di Wu, Hongwei Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu.
+\newblock LongMemEval: Benchmarking chat assistants on long-term interactive memory.
+\newblock \emph{arXiv preprint arXiv:2410.10813}, 2024.
+
+\bibitem[Yang et al.(2018)]{yang2018hotpotqa}
+Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William W.\ Cohen, Ruslan Salakhutdinov, and Christopher D.\ Manning.
+\newblock HotpotQA: A dataset for diverse, explainable multi-hop question answering.
+\newblock In \emph{Proceedings of EMNLP}, pages 2369--2380, 2018.
+
+\bibitem[Zhong et al.(2024)]{zhong2024memorybank}
+Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang.
+\newblock MemoryBank: Enhancing large language models with long-term memory.
+\newblock In \emph{Proceedings of AAAI}, 2024.
+
+\end{thebibliography}
+
+\end{document}

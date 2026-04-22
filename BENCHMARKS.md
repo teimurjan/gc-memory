@@ -61,10 +61,10 @@ Checkpoints 11–13. All on 500-query full eval, 5000-step burn-in.
 
 | Config | NDCG@10 | Recall@30 | Notes |
 |--------|---------|-----------|-------|
-| Global RIF (original formula) | 0.2993 (+1.1%) | 0.4142 (+0.9%) | Cue-independent; conservative is optimal |
-| Global RIF (gap formula) | 0.3037 (+2.6%) | 0.4250 (+3.6%) | Gap formula alone is 2.4× better than original |
-| Clustered RIF 30 (original) | 0.3132 (+5.8%) | 0.4381 (+6.8%) | K-means 30 query clusters, per-cluster suppression |
-| **Clustered RIF 30 + gap formula** | **0.3152 (+6.5%)** | **0.4494 (+9.5%)** | **Best retrieval-only configuration** |
+| Global RIF (original formula) | 0.2993 (+1.1%) | 0.4142 (+0.9%) | **Not statistically significant**: permutation p=0.62 NDCG, 0.72 Recall (checkpoint 18) |
+| Global RIF (gap formula) | 0.3037 (+2.6%) | 0.4250 (+3.6%) | **Not statistically significant**: p=0.18 NDCG, 0.13 Recall |
+| Clustered RIF 30 (original) | 0.3132 (+5.8%) | 0.4381 (+6.8%) | **Significant**: p=0.002 NDCG, p=0.0009 Recall, 95% CI excludes zero |
+| **Clustered RIF 30 + gap formula** | **0.3152 (+6.5%)** | **0.4494 (+9.5%)** | **Best retrieval-only**. Significant vs baseline (p=0.0001 both metrics). Pairwise over uniform rule not individually significant (p=0.55 NDCG, 0.055 Recall): efficiency win, not a demonstrated quality improvement over uniform |
 
 Default config for the best row: `alpha=0.3`, `suppression_rate=0.1`, `reinforcement_rate=0.05`, `decay_lambda=0.005`, `n_clusters=30`, `use_rank_gap=True`.
 
@@ -130,6 +130,23 @@ Summarized here; full numbers in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
 | Exploration + rescue list (top-K injection) | 2 | −2.6pp at scale (looked positive on small eval, variance) |
 | Sparse Distributed Memory (binary LSH + cleanup) | 3 | FAISS wins outright on synthetic episodic data |
 | Iterative cleanup on SDM | 3 | Drifts to sibling prototypes — ≈3× precision drop |
+| **RIF transfer to NFCorpus (non-conversational IR)** | **5** | **3 of 4 variants significantly regress (p ≤ 0.02); mechanism is workload-specific (checkpoint 18)** |
+
+### Scope (checkpoint 18)
+
+The retrieval-only gains above hold on LongMemEval S (long-term conversational memory). Running the same five RIF configurations on NFCorpus (BEIR medical IR, 3,633 docs, 323 queries):
+
+| Config | NFCorpus NDCG@10 | Δ vs baseline | p (perm) |
+|--------|------------------|---------------|----------|
+| Baseline | 0.3462 | — | — |
+| Global RIF (original) | 0.3198 | **−0.0264** | **0.0001** |
+| Global RIF (gap) | 0.3341 | **−0.0121** | **0.007** |
+| Clustered RIF (original) | 0.3247 | **−0.0215** | **0.0002** |
+| Clustered RIF + gap | 0.3423 | −0.0039 | 0.199 |
+
+Three of four variants significantly regress. Only clustered+gap stays within noise of baseline. Diagnosis: (i) corpus saturation — 68% of the 3,633-doc corpus has non-zero suppression by the end of 3,000-step burn-in vs 4% on the 199k LongMemEval corpus; (ii) workload mismatch — independent medical queries don't share the recurring information needs RIF's cue-dependent suppression depends on.
+
+**Interpretation:** the mechanism is scoped to long-term conversational memory. Don't apply it to general ad-hoc retrieval.
 
 ---
 
@@ -160,6 +177,13 @@ uv run python benchmarks/run_rif_extended_metrics.py  # checkpoint 16
 export ANTHROPIC_API_KEY=sk-ant-...
 uv run python experiments/enrich_longmemeval.py    # ~$16 for 10k entries
 uv run python benchmarks/run_rif_enriched.py       # checkpoint 17 (3-arm)
+
+# Statistical rigor + cross-dataset scope (checkpoint 18)
+uv run python benchmarks/bootstrap_rif_gap_ci.py   # LongMemEval CIs + perm tests
+uv run python benchmarks/run_rif_gap_nfcorpus.py   # NFCorpus replication (~25 min)
+uv run python benchmarks/bootstrap_rif_gap_ci.py \
+    --input  benchmarks/results/rif_gap_per_query_nfcorpus.json \
+    --output benchmarks/results/rif_gap_nfcorpus_ci.md
 ```
 
 Raw per-run outputs from each benchmark script are checked into `benchmarks/results/` for auditability.

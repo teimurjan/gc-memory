@@ -1,4 +1,5 @@
 results/
+!benchmarks/results/
 data/
 __pycache__/
 *.egg-info/
@@ -10,6 +11,14 @@ dist/
 .coverage
 .pytest_cache/
 writeup/
+arxiv/*.pdf
+arxiv/*.aux
+arxiv/*.log
+arxiv/*.out
+arxiv/*.toc
+arxiv/*.bbl
+arxiv/*.blg
+arxiv/*.synctex.gz
 .memsearch/
 .claude/
 .env

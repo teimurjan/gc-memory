@@ -25,8 +25,9 @@ All numbers are NDCG@10 on the full LongMemEval S corpus (199,509 turns, 500 que
 | 15 | Sparse Distributed Memory prototype | FAISS wins outright | 3 |
 | 16 | Extended behavior metrics for ck 13 | RIF's gain is wrong_family only | 4 |
 | 17 | LLM enrichment layer | **+8.3pp NDCG on covered — largest single lever** | 4 |
+| 18 | Statistical rigor + NFCorpus replication | **clustered-RIF p<0.002 on LongMemEval; regresses on NFCorpus** | 5 |
 
-**Current best retrieval pipeline:** hybrid BM25+vector → clustered+gap RIF → cross-encoder rerank (checkpoint 13). **Best overall:** that stack + write-time LLM enrichment (checkpoint 17, partial coverage).
+**Current best retrieval pipeline:** hybrid BM25+vector → clustered+gap RIF → cross-encoder rerank (checkpoint 13). **Best overall:** that stack + write-time LLM enrichment (checkpoint 17, partial coverage). **Scope (checkpoint 18):** the mechanism is workload-specific — it helps on long-term conversational memory and does not generalize to non-conversational ad-hoc IR.
 
 ---
 
@@ -314,6 +315,48 @@ Enriched 975 entries (first 1000 of the ~10k answer-relevant set), covering 15% 
 
 ---
 
+## Phase 5 — Statistical rigor and cross-dataset scope (checkpoint 18)
+
+### Checkpoint 18 — Bootstrap CIs, permutation tests, and NFCorpus replication
+
+Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-ran the checkpoint-13 benchmark with per-query NDCG arrays persisted (`benchmarks/run_rif_gap.py` patched to dump `rif_gap_per_query.json`), then computed 95% bootstrap percentile CIs (10k resamples) and two-sided paired permutation test p-values (10k permutations) via `benchmarks/bootstrap_rif_gap_ci.py`.
+
+**LongMemEval S, 500-query eval, same 5000-step burn-in:**
+
+| Config | NDCG@10 [95% CI] | Δ NDCG [95% CI] | p (perm) |
+|--------|------------------|------------------|----------|
+| baseline | 0.2960 [0.2647, 0.3281] | — | — |
+| global-original | 0.2992 [0.2671, 0.3311] | +0.0032 [−0.0097, +0.0161] | 0.622 |
+| global-gap | 0.3038 [0.2713, 0.3364] | +0.0079 [−0.0034, +0.0192] | 0.175 |
+| clustered30-original | 0.3132 [0.2814, 0.3453] | **+0.0173 [+0.0063, +0.0285]** | **0.002** |
+| **clustered30-gap** | **0.3152 [0.2836, 0.3473]** | **+0.0192 [+0.0102, +0.0292]** | **0.0001** |
+
+**Findings (LongMemEval):**
+1. **Clustering is the significant component.** Both clustered variants reject the null at Bonferroni-adjusted p<0.01; both global variants do not reject even without correction.
+2. **Rank-gap refinement is not individually significant over the uniform rule.** Pairwise (clustered30-gap vs clustered30-original): Δ NDCG +0.0020 p=0.548, Δ Recall +0.0112 p=0.055. Direction consistent, significance not established at n=500. Report as an efficiency win (30% fewer suppressed entries), not a quality win.
+3. Previous published numbers (+1.1% global, +6.5% clustered+gap) were correct as point estimates. The CIs reframe what they mean: the clustering gain is real, the global and rank-gap deltas are inside or at the edge of noise.
+
+**NFCorpus (BEIR medical IR), 323-query eval, 3,000-step burn-in, identical hyperparameters:**
+
+| Config | NDCG@10 | Δ NDCG [95% CI] | p (perm) |
+|--------|---------|------------------|----------|
+| baseline | 0.3462 [0.3120, 0.3812] | — | — |
+| global-original | 0.3198 | **−0.0264 [−0.0398, −0.0144]** | **0.0001** |
+| global-gap | 0.3341 | **−0.0121 [−0.0219, −0.0035]** | **0.007** |
+| clustered30-original | 0.3247 | **−0.0215 [−0.0352, −0.0100]** | **0.0002** |
+| clustered30-gap | 0.3423 | −0.0039 [−0.0101, +0.0021] | 0.199 |
+
+**Findings (NFCorpus):**
+1. **Three of four variants significantly regress.** Only clustered+gap stays within noise of baseline.
+2. **Corpus saturation is the likely root cause.** 3,000 burn-in steps × 30 candidates over a 3,633-doc corpus with a 323-query pool sampled with replacement gives ~25 suppression updates per entry; 68% of the corpus accumulates non-zero suppression. On LongMemEval the same burn-in budget touches ~4% of the 199k corpus.
+3. **Workload mismatch is the structural cause.** NFCorpus queries are independent medical questions, not a single user's overlapping information needs. The cue-dependent suppression mechanism requires recurring cues; when clusters correspond to static topic labels rather than recurring retrieval intents, within-cluster suppression does not generalize.
+
+**Conclusion:** the mechanism is workload-specific. It targets the chronic-false-positive pattern characteristic of a single user's accumulating long-term conversation memory, and actively hurts on ad-hoc retrieval where that pattern does not exist. The arXiv paper (`arxiv/paper.tex`, §5.3) documents this scope explicitly; public write-ups (`writeup/post_v2.md`, `writeup/launch_posts.md`) reflect the narrower claim.
+
+Artifacts: `benchmarks/results/rif_gap_per_query.json`, `benchmarks/results/rif_gap_per_query_nfcorpus.json`, `benchmarks/results/rif_gap_ci.md`, `benchmarks/results/rif_gap_nfcorpus_ci.md`.
+
+---
+
 ## Benchmark methodology note
 
 All numbers above are **NDCG@10 over turn-level retrieval on the full 199,509-turn LongMemEval S corpus** — needle-in-haystack among 200k candidates.
@@ -339,8 +382,9 @@ Production implementation: `MemoryStore` collects query embeddings during `retri
 
 ## What's next
 
-Three open directions, in rough priority:
+Four open directions, in rough priority:
 
 1. **Scale enrichment to full answer-relevant coverage** (~$16, ~1h enrichment + 3.5h benchmark). Confirms covered-bucket numbers on the full eval. Gets us the clean +8pp NDCG story.
-2. **Head-to-head against other memory tools on shared methodology.** Run our system under their setup (per-query ~50 sessions, recall@5), and/or theirs under ours. Honest comparison.
-3. **Move failure modes that haven't budged**: sibling_confusion (within-session discrimination) and stale_fact (temporal awareness). Candidate mechanisms: session-structured reranking, temporal-aware tie-breaking, explicit fact extraction with validity windows.
+2. **Replicate clustered RIF on a second long-term conversation memory benchmark** (e.g., LoCoMo, MSC, LongMemEval M). The NFCorpus negative result shows the mechanism doesn't transfer to ad-hoc IR; a second in-scope dataset would strengthen the conversational-memory claim independently.
+3. **Head-to-head against other memory tools on shared methodology.** Run our system under their setup (per-query ~50 sessions, recall@5), and/or theirs under ours. Honest comparison.
+4. **Move failure modes that haven't budged**: sibling_confusion (within-session discrimination) and stale_fact (temporal awareness). Candidate mechanisms: session-structured reranking, temporal-aware tie-breaking, explicit fact extraction with validity windows.

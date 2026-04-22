@@ -1,11 +1,13 @@
-"""Rank-gap RIF: competition strength from rank drop between initial and xenc.
+"""Rank-gap RIF on NFCorpus (BEIR medical IR, 3,633 docs, 323 queries).
 
-Instead of `initial_rank * sigmoid(-xenc_score)`, use
-`(xenc_rank - initial_rank) * sigmoid(-xenc_score)`. This directly measures
-how much an entry was "promoted by similarity but demoted by semantics" —
-the cleanest distractor signal.
+Second-dataset replication of the LongMemEval rank-gap RIF benchmark. Same
+configs, same suppression formulas, different corpus. Because NFCorpus is
+non-conversational ad-hoc IR with graded relevance judgments, this tests
+whether clustered RIF generalizes beyond long-term conversation memory.
 
-Tests gap formula on both global and clustered RIF to see if the gains stack.
+Burn-in is reduced to 3000 steps (from 5000 on LongMemEval) because the
+query pool is only 323 items; with-replacement sampling still gives each
+query around 9 exposures during burn-in.
 """
 from __future__ import annotations
 
@@ -37,8 +39,9 @@ from lethe.rif import (
 )
 
 DATA = Path("data")
-RESULTS = Path("benchmarks/results/BENCHMARKS_RIF_GAP.md")
-PER_QUERY_OUT = Path("benchmarks/results/rif_gap_per_query.json")
+RESULTS = Path("benchmarks/results/BENCHMARKS_RIF_GAP_NFCORPUS.md")
+PER_QUERY_OUT = Path("benchmarks/results/rif_gap_per_query_nfcorpus.json")
+DATASET_PREFIX = "nfcorpus"
 
 
 @dataclass
@@ -60,7 +63,7 @@ CONFIGS = [
     Config("clustered30-gap", RIFConfig(**BASE_PARAMS, use_rank_gap=True), 30),
 ]
 
-BURN_IN = 5000
+BURN_IN = 3000
 K_SHALLOW = 30
 K_FINAL = 10
 
@@ -93,16 +96,16 @@ def main() -> None:
     print("=" * 60)
     print()
 
-    data = np.load(str(DATA / "longmemeval_prepared.npz"), allow_pickle=True)
+    data = np.load(str(DATA / f"{DATASET_PREFIX}_prepared.npz"), allow_pickle=True)
     corpus_ids = list(data["corpus_ids"])
     corpus_embs = data["corpus_embeddings"].astype(np.float32)
     query_ids = list(data["query_ids"])
     query_embs = data["query_embeddings"].astype(np.float32)
-    with open(DATA / "longmemeval_qrels.json") as f:
+    with open(DATA / f"{DATASET_PREFIX}_qrels.json") as f:
         qrels = json.load(f)
-    with open(DATA / "longmemeval_corpus.json") as f:
+    with open(DATA / f"{DATASET_PREFIX}_corpus.json") as f:
         corpus_content = json.load(f)
-    with open(DATA / "longmemeval_queries.json") as f:
+    with open(DATA / f"{DATASET_PREFIX}_queries.json") as f:
         query_texts = json.load(f)
 
     xenc = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
@@ -291,7 +294,7 @@ def main() -> None:
 
     print(f"\nWriting {RESULTS}...", flush=True)
     with open(RESULTS, "w") as f:
-        f.write("# Rank-gap RIF Benchmark\n\n")
+        f.write("# Rank-gap RIF Benchmark (NFCorpus)\n\n")
         f.write("Competition strength from rank drop (initial vs xenc) instead of rank alone.\n\n")
         f.write(f"Burn-in: {BURN_IN} steps, Eval: {n_eval} queries\n")
         f.write(f"RIF params: alpha=0.3, rate=0.1, decay=0.005 (all configs)\n")

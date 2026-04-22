@@ -18,10 +18,12 @@ Numbers on the full 199,509-turn LongMemEval S corpus, **turn-level retrieval, N
 |---|---|---|
 | Hybrid BM25 + vector (RRF) | 0.217 | basic retrieval (most popular) |
 | + cross-encoder reranking | 0.293 | +35% from semantic reranking |
-| + clustered+gap RIF (checkpoint 13) | **0.312** | +6.5% from retrieval-induced forgetting |
+| + clustered+gap RIF (checkpoint 13) | **0.312** | +6.5% from retrieval-induced forgetting (paired permutation p<0.002, 95% CI excludes zero) |
 | + LLM enrichment, on covered queries | **0.473** | +21% on the 75 queries where the answer turn was Haiku-enriched |
 
-Full methodology in [BENCHMARKS.md](BENCHMARKS.md). 17 checkpoints (10 failed) in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
+**Scope.** The RIF gain is workload-specific. The mechanism targets the chronic-false-positive pattern in a single user's long-term conversation memory. On NFCorpus (a non-conversational medical IR benchmark) it doesn't transfer: three of four variants significantly regress. We diagnose this in the arXiv paper (corpus saturation + workload mismatch) and scope the claim to long-term conversational memory. Use lethe for what it's good at; don't expect it to help on general ad-hoc retrieval.
+
+Full methodology in [BENCHMARKS.md](BENCHMARKS.md). 18 checkpoints (11 failed or null) in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md). Statistical rigor and the NFCorpus replication in [arxiv/paper.tex](arxiv/paper.tex).
 
 ![](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/demo.gif)
 
@@ -65,7 +67,7 @@ See [plugins/claude-code/README.md](plugins/claude-code/README.md) for plugin de
 
 [ARCHITECTURE.md](ARCHITECTURE.md) - pipeline diagram, RIF formula, storage layers, entry lifecycle, cross-project search.
 
-[RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md) - 17 checkpoints from biology-inspired mutation (all failed) through cognitive-science RIF (+6.5%) to LLM enrichment (+21% on covered queries).
+[RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md) - 18 checkpoints from biology-inspired mutation (all failed) through cognitive-science RIF (+6.5% on conversational memory, does not generalize to ad-hoc IR) to LLM enrichment (+21% on covered queries) and statistical rigor with a second-dataset replication.
 
 ## License
 
