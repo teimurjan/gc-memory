@@ -380,6 +380,27 @@ Production implementation: `MemoryStore` collects query embeddings during `retri
 
 ---
 
+### Implementation note: adaptive deep-pass `k_deep` re-calibration (200 → 100)
+
+Checkpoint 6 introduced the adaptive depth: shallow `k=30`, deep `k=200` when cross-encoder confidence is low. The 200 was never measured against smaller alternatives — it was picked as "large enough to never hurt." Once the TUI started making the deep pass user-visible (cross-project search over N registered projects pays `N × k_deep` rerank cost in the worst case), we re-ran the sweep.
+
+LongMemEval S, 100-query random sample (seed 0), full production pipeline (BM25 + FAISS → RRF → cross-encoder rerank), deep pass fires on 59% of queries:
+
+| config | NDCG@10 | Recall@10 | ΔNDCG vs baseline | p50 | p95 |
+|---|---|---|---|---|---|
+| shallow-only (no deep pass) | 0.2866 | 0.3493 | −1.56 pp | 1689 ms | 2371 ms |
+| k_deep=60  | 0.2910 | 0.3527 | −1.11 pp | 4159 ms | 5936 ms |
+| **k_deep=100** | **0.3022** | **0.3731** | **0.00 pp** | **5651 ms** | **7440 ms** |
+| k_deep=200 (old) | 0.3022 | 0.3727 | baseline | 9800 ms | 12650 ms |
+
+`k_deep=100` gives **identical NDCG@10 and Recall@10** to the old 200 while cutting p50 ~42% and p95 ~41%. The cross-encoder's top-10 picks stabilize by merged rank ~100 on this workload — ranks 101-200 never won a top-10 slot, so the old 200 was pure latency tax.
+
+`k_deep=60` is cheaper still but costs 1.1 pp NDCG, above the noise floor — rejected. If a user ever reports a query pattern where 100 is insufficient, the knob is exposed on the `MemoryStore` / `UnionStore` constructors.
+
+Reproducer: `benchmarks/bench_deep_pass.py`. Raw table: `benchmarks/results/bench_deep_pass.md`.
+
+---
+
 ## What's next
 
 Four open directions, in rough priority:
