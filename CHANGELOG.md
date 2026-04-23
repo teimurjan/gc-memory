@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.4.0...lethe-memory-v0.4.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* Tui scope transitions release duckdb handles; document tui install ([0658b5a](https://github.com/teimurjan/lethe/commit/0658b5a7df5bf18f63bcf5d10ab6cba4455d20fd))
+
 ## [0.4.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.3.0...lethe-memory-v0.4.0) (2026-04-23)
 
 
