@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from rich.markup import escape as _escape_markup
@@ -163,8 +162,12 @@ class LetheApp(App[None]):
         color: $text;
     }
 
+    /* search-row needs height 4 (not 3): Input renders with a tall
+       border (height 3), and border-bottom on the row eats 1 more row.
+       At height 3, the Input's bottom edge overlaps the row's border
+       and the input text gets clipped. */
     #search-row {
-        height: 3;
+        height: 4;
         padding: 0 1;
         background: $panel;
         border-bottom: solid $primary-darken-2;
@@ -356,11 +359,25 @@ class LetheApp(App[None]):
             self._set_scope(Scope(project=item.entry))
             self.query_one("#search-input", Input).focus()
 
-    @on(ListView.Selected, "#results")
-    def _on_result_selected(self, event: ListView.Selected) -> None:
+    @on(ListView.Highlighted, "#results")
+    def _on_result_highlighted(self, event: ListView.Highlighted) -> None:
+        # Live-expand on cursor move — the content is already in memory
+        # (see _expand), so this is cheap and avoids the two-step
+        # "highlight then press Enter" interaction. Highlighted fires
+        # with event.item = None during list rebuild/clear — ignore
+        # those so we don't blink the detail pane shut between a search
+        # completing and the user arrowing.
         item = event.item
         if isinstance(item, ResultItem):
-            self.run_worker(self._expand_result(item.hit), exclusive=True, group="expand")
+            self._show_detail(_expand(self._scope, item.hit) or "(empty)")
+
+    @on(ListView.Selected, "#results")
+    def _on_result_selected(self, event: ListView.Selected) -> None:
+        # Enter is redundant with the highlight-driven expand above, but
+        # handle it idempotently so hitting it isn't surprising.
+        item = event.item
+        if isinstance(item, ResultItem):
+            self._show_detail(_expand(self._scope, item.hit) or "(empty)")
 
     @on(Input.Submitted, "#search-input")
     def _on_search_submit(self, event: Input.Submitted) -> None:
@@ -399,17 +416,16 @@ class LetheApp(App[None]):
         else:
             for hit in hits:
                 results_view.append(ResultItem(hit))
-            self.query_one("#results-title", Static).update(f"Results ({len(hits)}) — ⏎ to expand")
+            self.query_one("#results-title", Static).update(f"Results ({len(hits)}) — ↑/↓ to browse")
+            # Hand focus to the results list so arrow keys work immediately.
+            # Any printable key hops back to the input via on_key.
+            results_view.index = 0
+            results_view.focus()
+            # Textual doesn't fire Highlighted for a programmatic
+            # index=0 on a freshly-populated list, so expand the first
+            # hit explicitly to match the live-on-highlight behavior.
+            self._show_detail(hits[0].content or "(empty)")
         self._searching = False
-
-    async def _expand_result(self, hit: SearchHit) -> None:
-        self._show_detail("loading…")
-        try:
-            content = await asyncio.to_thread(_expand, self._scope, hit)
-        except Exception as exc:  # pragma: no cover
-            self._show_detail(f"error: {exc}")
-            return
-        self._show_detail(content or "(empty)")
 
     # ---- retrieval (blocking; called via asyncio.to_thread) --------------
     #
@@ -505,29 +521,17 @@ class LetheApp(App[None]):
 
 
 def _expand(scope: Scope, hit: SearchHit) -> str:
-    """Fetch the full markdown section behind a result row."""
-    from lethe.db import MemoryDB
+    """Return the full markdown section behind a result row.
 
-    root = scope.project.root if scope.project else _root_for_hit(hit)
-    if root is None:
-        return hit.content
-    db_path = Path(root) / ".lethe" / "index" / "lethe.duckdb"
-    if not db_path.exists():
-        return hit.content
-    db = MemoryDB(db_path)
-    try:
-        return db.get_content(hit.id) or hit.content
-    finally:
-        db.close()
-
-
-def _root_for_hit(hit: SearchHit) -> Path | None:
-    if not hit.project_slug:
-        return None
-    for entry in _registry.load():
-        if entry.slug == hit.project_slug:
-            return entry.root
-    return None
+    ``hit.content`` already holds the full section (both ``MemoryStore``
+    and ``UnionStore`` load it into memory up front), so this is just an
+    indirection hook. Opening a fresh DuckDB connection here used to
+    collide with the UnionStore's ATTACH on the same file —
+    DuckDB rejects a direct ``connect(path)`` while the file is ATTACHed
+    under another alias in the same process — so don't.
+    """
+    del scope  # kept for API symmetry; no longer needed
+    return hit.content
 
 
 # --- entry point -------------------------------------------------------------
