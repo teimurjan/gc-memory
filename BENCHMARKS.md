@@ -39,15 +39,15 @@ RIF is a learned mechanism — needs usage history to accumulate suppression. Al
 
 ### Retrieval baselines
 
-200-query eval sample, checkpoint 10 audit:
+200-query eval sample. Current numbers use the regex BM25 tokenizer (`[A-Za-z0-9_]+`), which replaced `lower().split()` on 2026-04-24. See [BENCHMARKS_BM25_TOKENIZER.md](results/BENCHMARKS_BM25_TOKENIZER.md) for the ablation — the change stripped trailing punctuation (so `"MongoDB?"` matches `"mongodb"`) and beat three alternative tokenizers on the 100-query sweep.
 
 | System | NDCG@10 | Recall@10 | Notes |
 |--------|---------|-----------|-------|
-| Vector only (MiniLM top-10) | 0.1376 | 0.2173 | Bi-encoder baseline |
-| BM25 only (top-10) | 0.2420 | 0.3264 | Sparse keyword baseline |
-| Hybrid BM25+vector RRF (memsearch style) | 0.2171 | 0.3334 | Rank fusion, no reranker |
-| Vector + cross-encoder rerank (k=30) | 0.2425 | 0.2892 | Dense + reranker |
-| **Hybrid + cross-encoder rerank (k=30)** | **0.3680** | **0.4694** | **Best without any learned component** |
+| Vector only (MiniLM top-10) | 0.1376 | 0.2173 | Bi-encoder baseline; no BM25, unchanged |
+| BM25 only (top-10) | 0.3171 | 0.4152 | Sparse keyword baseline (was 0.2420 with `lower().split()`) |
+| Hybrid BM25+vector RRF (memsearch style) | 0.2408 | 0.3554 | Rank fusion, no reranker (was 0.2171) |
+| Vector + cross-encoder rerank (k=30) | 0.2425 | 0.2892 | Dense + reranker; no BM25, unchanged |
+| **Hybrid + cross-encoder rerank (k=30)** | **0.3817** | **0.4964** | **Best without any learned component** (was 0.3680) |
 
 500-query full eval (the default for all Phase 2+ results):
 

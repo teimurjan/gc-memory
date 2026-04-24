@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lethe.vectors import VectorIndex, _top_k_desc
+from lethe.vectors import VectorIndex, _tokenize, _top_k_desc
 
 
 DIM = 16
@@ -140,3 +140,35 @@ def test_top_k_desc_matches_argsort_tail() -> None:
             assert np.array_equal(
                 scores[got], scores[expected]
             ), f"n={n} k={k}: tie-breaks may differ but score sequence must match"
+
+
+# ---------- _tokenize ----------
+
+def test_tokenize_strips_punctuation_and_lowercases() -> None:
+    """Punctuation handling is the whole point of the regex tokenizer:
+    ``"MongoDB?"`` must match ``"mongodb"`` so short-query BM25 fires."""
+    assert _tokenize("MongoDB?") == ["mongodb"]
+    assert _tokenize("Hello, world!") == ["hello", "world"]
+    assert _tokenize("can't won't") == ["can", "t", "won", "t"]
+    assert _tokenize("") == []
+
+
+def test_search_bm25_matches_across_punctuation() -> None:
+    """Regression: the previous lower().split() tokenizer missed
+    matches when the query or corpus had trailing punctuation.
+
+    Uses a 5-doc corpus so BM25Okapi's IDF is non-degenerate
+    (it returns 0 when df = (N+1)/2 on tiny corpora)."""
+    idx = VectorIndex(dim=DIM)
+    ids = ["a", "b", "c", "d", "e"]
+    contents = [
+        "I use MongoDB daily.",
+        "unrelated content about cats",
+        "another note about cars",
+        "another about cooking recipes",
+        "yet another about music theory",
+    ]
+    idx.build(ids, np.eye(5, DIM, dtype=np.float32), contents)
+    # Query with trailing '?' must still match "MongoDB" in doc "a".
+    results = idx.search_bm25("MongoDB?", k=5)
+    assert results[0] == "a"
