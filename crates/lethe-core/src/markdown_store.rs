@@ -16,6 +16,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
+use crate::memory_store::MemoryStore;
+
 static ANCHOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"<!--\s*session:(?P<session>\S*?)\s+turn:(?P<turn>\S*?)\s+transcript:(?P<transcript>.*?)\s*-->",
@@ -150,6 +152,79 @@ pub fn split_into_chunks(md_text: &str, source: &Path) -> Vec<Chunk> {
     }
     flush(&buf, &current_heading, &mut chunks);
     chunks
+}
+
+/// Counts returned by [`reindex`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReindexCounts {
+    pub added: usize,
+    pub removed: usize,
+    pub unchanged: usize,
+    pub total: usize,
+}
+
+/// Sync markdown files under `memory_dir` into `store`.
+///
+/// Walks the directory non-recursively for `*.md`, splits each file
+/// into chunks, and asks the store to insert any whose ids aren't
+/// already present. Chunks no longer in any markdown file are
+/// deleted. The whole pass runs inside `store.bulk_add()` so the
+/// FAISS-equivalent index is rebuilt exactly once.
+pub fn reindex(memory_dir: &Path, store: &MemoryStore) -> Result<ReindexCounts, crate::Error> {
+    let mut chunks: Vec<Chunk> = Vec::new();
+    if memory_dir.is_dir() {
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(memory_dir)?
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "md"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            chunks.extend(split_into_chunks(&text, &path));
+        }
+    }
+    let total = chunks.len();
+    let current_ids: std::collections::HashSet<String> =
+        chunks.iter().map(|c| c.id.clone()).collect();
+
+    let mut counts = ReindexCounts {
+        total,
+        ..Default::default()
+    };
+
+    store.bulk_add(|| {
+        // Existing in-memory ids to drive the unchanged/added split.
+        let existing: std::collections::HashSet<String> = store.live_ids();
+        for chunk in &chunks {
+            if existing.contains(&chunk.id) {
+                counts.unchanged += 1;
+                continue;
+            }
+            let body = embed_content(&chunk.content);
+            let session_id = chunk
+                .source
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let inserted = store.add(&body, Some(&chunk.id), &session_id, 0)?;
+            if inserted.is_some() {
+                counts.added += 1;
+            } else {
+                counts.unchanged += 1;
+            }
+        }
+        // Drop chunks no longer present in any md file.
+        for old in store.live_ids() {
+            if !current_ids.contains(&old) && store.delete(&old)? {
+                counts.removed += 1;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(counts)
 }
 
 #[cfg(test)]

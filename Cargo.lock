@@ -1555,6 +1555,7 @@ dependencies = [
  "lethe-core",
  "serde",
  "serde_json",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

@@ -234,6 +234,16 @@ impl MemoryStore {
         self.inner.lock().map(|g| g.entries.len()).unwrap_or(0)
     }
 
+    /// Snapshot of currently-loaded entry ids. Used by markdown
+    /// `reindex` to compute add/unchanged/remove deltas.
+    #[must_use]
+    pub fn live_ids(&self) -> std::collections::HashSet<String> {
+        self.inner
+            .lock()
+            .map(|g| g.entries.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// Add a new memory entry. Returns the id, or `None` when the
     /// content was deduped (exact-hash or near-cosine match against an
     /// existing longer entry). Mirrors `MemoryStore.add`.
