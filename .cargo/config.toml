@@ -16,3 +16,12 @@ lto = "thin"
 codegen-units = 1
 debug = "line-tables-only"
 strip = "debuginfo"
+
+# pyo3 extension-module: undefined Python symbols are resolved by the
+# host interpreter at load time, not by the static linker. macOS needs
+# this opt-in; Linux ld already does the right thing by default.
+[target.'cfg(target_os = "macos")']
+rustflags = [
+    "-C",
+    "link-args=-Wl,-undefined,dynamic_lookup",
+]

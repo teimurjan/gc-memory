@@ -10,9 +10,8 @@ members = [
     "crates/lethe-core",
     "crates/lethe-cli",
     "crates/lethe-tui",
-    # Bindings crates are added in later phases:
-    # "crates/lethe-py",
-    # "crates/lethe-node",
+    "crates/lethe-py",
+    "crates/lethe-node",
 ]
 
 # Shared dependency versions so every crate links the same builds.

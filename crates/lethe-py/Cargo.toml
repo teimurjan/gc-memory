@@ -1,0 +1,20 @@
+[package]
+name = "lethe-py"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "Python bindings for lethe-core (built via maturin, importable as `lethe_rust`)."
+license = "MIT"
+repository = "https://github.com/teimurjan/lethe"
+publish = false
+
+[lib]
+name = "lethe_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+lethe-core = { path = "../lethe-core" }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+
+[lints]
+workspace = true

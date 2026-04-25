@@ -1,0 +1,22 @@
+{
+  "name": "@lethe/memory-rust",
+  "version": "0.1.0",
+  "description": "Node bindings to the Rust port of lethe.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "private": true,
+  "napi": {
+    "name": "lethe-memory-rust",
+    "triples": {
+      "defaults": false,
+      "additional": ["x86_64-apple-darwin", "aarch64-apple-darwin"]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  }
+}
