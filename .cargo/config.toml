@@ -1,0 +1,18 @@
+# Workspace-wide cargo configuration. Iteration speed in dev (opt-level=1)
+# so debug builds stay fast on the 22M-param ONNX models we exercise; full
+# LTO + opt 3 in release for the binaries we benchmark and ship.
+[build]
+# Reasonable default parallelism without thrashing the user's machine.
+jobs = 8
+
+[profile.dev]
+opt-level = 1
+debug = true
+incremental = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+strip = "debuginfo"

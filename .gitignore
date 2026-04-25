@@ -24,3 +24,10 @@ arxiv/*.synctex.gz
 .claude/
 .env
 .lethe
+
+# Rust workspace
+target/
+Cargo.lock.bak
+**/*.rs.bk
+crates/lethe-node/node_modules/
+crates/lethe-node/*.node

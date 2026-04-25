@@ -1,0 +1,25 @@
+[package]
+name = "lethe-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "Command-line interface for lethe (Rust port). Ships as the `lethe-rs` binary."
+license = "MIT"
+repository = "https://github.com/teimurjan/lethe"
+publish = false
+
+[[bin]]
+name = "lethe-rs"
+path = "src/main.rs"
+
+[dependencies]
+lethe-core = { path = "../lethe-core" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

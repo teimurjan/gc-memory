@@ -1,0 +1,39 @@
+[package]
+name = "lethe-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "Core retrieval library for lethe (Rust port). Hybrid BM25 + dense + cross-encoder rerank with clustered RIF."
+license = "MIT"
+repository = "https://github.com/teimurjan/lethe"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ndarray.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+fs2.workspace = true
+duckdb.workspace = true
+ort.workspace = true
+tokenizers.workspace = true
+hf-hub.workspace = true
+bincode.workspace = true
+toml.workspace = true
+walkdir.workspace = true
+hex.workspace = true
+once_cell.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"
+approx = "0.5"
+
+[lints]
+workspace = true
