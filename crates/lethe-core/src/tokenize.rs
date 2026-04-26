@@ -20,15 +20,21 @@ static WORD_RE: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// Empty input yields an empty vector (callers like `search_bm25` rely
 /// on this to short-circuit on punctuation-only queries).
+///
+/// **Unicode**: we use `str::to_lowercase` (full Unicode case folding)
+/// rather than `to_ascii_lowercase` so the byte-by-byte output matches
+/// Python's `text.lower()`. The difference matters for inputs like
+/// Turkish `İskender`: Python lowercases `İ` to `i + ◌̇` and the
+/// downstream ASCII regex picks up an extra `i` token; if we skipped
+/// Unicode case folding, that extra token would be missing and BM25
+/// scores on cross-script corpora would silently drift from the
+/// Python reference (caught by the LongMemEval components bench).
 #[must_use]
 pub fn tokenize_bm25(text: &str) -> Vec<String> {
     if text.is_empty() {
         return Vec::new();
     }
-    // Python lowercases first, then runs the regex; matching that order
-    // matters for non-ASCII inputs (the regex won't match non-ASCII
-    // anyway, but the lowercase happens first either way).
-    let lowered = text.to_ascii_lowercase();
+    let lowered = text.to_lowercase();
     WORD_RE
         .find_iter(&lowered)
         .map(|m| m.as_str().to_owned())
@@ -61,5 +67,20 @@ mod tests {
             tokenize_bm25("session_42 turn_idx=7"),
             vec!["session_42", "turn_idx", "7"]
         );
+    }
+
+    #[test]
+    fn unicode_case_folding_matches_python_lower() {
+        // Turkish `İ` (U+0130) lowercases to `i` + combining-dot
+        // (U+0307) under full Unicode case folding. Python's
+        // `str.lower()` does this; `str::to_ascii_lowercase` would
+        // not, dropping the extra `i` token. Tested here because the
+        // LongMemEval corpus contains words like "İskender" that
+        // generated false-negative BM25 hits before the fix.
+        assert_eq!(tokenize_bm25("İskender"), vec!["i", "skender"]);
+        // Mixed-script words: the non-ASCII letter is dropped by the
+        // ASCII regex, leaving the ASCII tail.
+        assert_eq!(tokenize_bm25("ÄPFEL"), vec!["pfel"]);
+        assert_eq!(tokenize_bm25("Café NAÏVE"), vec!["caf", "na", "ve"]);
     }
 }
