@@ -1,10 +1,11 @@
 name: release-rust
 
 # Triggered when release-please publishes a GitHub Release.
-# Builds the `lethe` binary for five platform triples, attaches tarballs
-# to the release, and publishes `lethe-core`, `lethe-tui`, `lethe-cli`
-# to crates.io (in dependency order). Optionally updates the Homebrew
-# tap at `teimurjan/homebrew-lethe`.
+# Builds the `lethe` and `lethe-claude-code` binaries for five platform
+# triples, attaches tarballs to the release, and publishes `lethe-core`,
+# `lethe-tui`, `lethe-cli`, `lethe-claude-code` to crates.io (in
+# dependency order). Optionally updates the Homebrew tap at
+# `teimurjan/homebrew-lethe`.
 
 on:
   release:
@@ -50,19 +51,23 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release -p lethe-cli --target ${{ matrix.target }}
+            cross build --release -p lethe-cli -p lethe-claude-code --target ${{ matrix.target }}
           else
-            cargo build --release -p lethe-cli --target ${{ matrix.target }}
+            cargo build --release -p lethe-cli -p lethe-claude-code --target ${{ matrix.target }}
           fi
       - name: package
         shell: bash
         run: |
           set -euo pipefail
-          BIN=lethe
-          if [ "${{ runner.os }}" = "Windows" ]; then BIN="lethe.exe"; fi
           STAGE="lethe-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir -p "$STAGE"
-          cp "target/${{ matrix.target }}/release/$BIN" "$STAGE/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/lethe.exe" "$STAGE/"
+            cp "target/${{ matrix.target }}/release/lethe-claude-code.exe" "$STAGE/"
+          else
+            cp "target/${{ matrix.target }}/release/lethe" "$STAGE/"
+            cp "target/${{ matrix.target }}/release/lethe-claude-code" "$STAGE/"
+          fi
           cp README.md LICENSE "$STAGE/" 2>/dev/null || true
           if [ "${{ runner.os }}" = "Windows" ]; then
             7z a "${STAGE}.zip" "$STAGE"
@@ -96,6 +101,8 @@ jobs:
           cargo publish -p lethe-tui --token "$CARGO_REGISTRY_TOKEN"
           sleep 30
           cargo publish -p lethe-cli --token "$CARGO_REGISTRY_TOKEN"
+          sleep 30
+          cargo publish -p lethe-claude-code --token "$CARGO_REGISTRY_TOKEN"
 
   homebrew:
     name: update homebrew tap
@@ -137,10 +144,12 @@ jobs:
 
             def install
               bin.install "lethe"
+              bin.install "lethe-claude-code"
             end
 
             test do
               system "#{bin}/lethe", "--version"
+              system "#{bin}/lethe-claude-code", "--version"
             end
           end
           EOF

@@ -13,6 +13,7 @@ members = [
     "crates/lethe-py",
     "crates/lethe-node",
     "crates/lethe-bench",
+    "crates/lethe-claude-code",
 ]
 
 # One source of truth for the workspace version, propagated via

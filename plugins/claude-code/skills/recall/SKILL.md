@@ -35,7 +35,7 @@ Find memories relevant to: $ARGUMENTS
 
 4. **Drill further (only if critical).** If an expanded chunk contains a progressive-disclosure anchor of the form `<!-- session:<uuid> turn:<uuid> transcript:<path> -->` *and* the user's question genuinely needs the original dialogue (e.g. debugging a decision, tracing a subtle error), run:
 
-   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/transcript.py" <transcript-path> --turn <turn-uuid>`
+   `lethe-claude-code transcript <transcript-path> --turn <turn-uuid>`
 
    This returns the user turn and assistant response as plain text.
 

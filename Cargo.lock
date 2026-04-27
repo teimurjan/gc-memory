@@ -1752,6 +1752,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lethe-claude-code"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lethe-cli"
 version = "0.6.0"
 dependencies = [

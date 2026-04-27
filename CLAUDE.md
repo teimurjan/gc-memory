@@ -29,7 +29,12 @@ crates/               # Rust workspace (production); shared workspace version
 │                     #   → PyPI: lethe-rust
 ├── lethe-node/       # napi-rs bindings
 │                     #   → npm: lethe
-└── lethe-bench/      # internal parity bench helper binary (publish = false)
+├── lethe-bench/      # internal parity bench helper binary (publish = false)
+└── lethe-claude-code/ # Claude Code adapter binary (transcript parsing).
+                      #   Lives separately so `lethe-core` stays
+                      #   framework-agnostic. Used only by
+                      #   `plugins/claude-code/`.
+                      #   → crates.io: lethe-claude-code, Homebrew: lethe
 
 migration_benchmarks/ # Python ↔ Rust parity bench (1-1, only for Rust migration)
 ├── prepare.py        # exports LongMemEval flat files for the Rust side
