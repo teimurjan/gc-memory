@@ -77,11 +77,11 @@ store.save()
 ### As a Node binding
 
 ```bash
-npm install @lethe/memory
+npm install @teimurjan/lethe
 ```
 
 ```typescript
-import { MemoryStore } from "@lethe/memory";
+import { MemoryStore } from "@teimurjan/lethe";
 
 const store = new MemoryStore("./my_memories", { dim: 384 });
 await store.add("first entry");

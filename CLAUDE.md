@@ -28,7 +28,7 @@ crates/               # Rust workspace (production); shared workspace version
 ├── lethe-py/         # PyO3 bindings (importable as `lethe_rust`)
 │                     #   → PyPI: lethe-rust
 ├── lethe-node/       # napi-rs bindings
-│                     #   → npm: @lethe/memory
+│                     #   → npm: @teimurjan/lethe
 └── lethe-bench/      # internal parity bench helper binary (publish = false)
 
 benchmarks/           # Python ↔ Rust parity bench (1-1)

@@ -3,7 +3,7 @@
 //!
 //! Usage from TypeScript:
 //!
-//!     import { MemoryStore } from "@lethe/memory-rust";
+//!     import { MemoryStore } from "@teimurjan/lethe";
 //!     const store = await MemoryStore.open("./.lethe/index", {});
 //!     await store.add("first entry");
 //!     const hits = await store.retrieve("query", 5);

@@ -24,7 +24,7 @@
     },
     "crates/lethe-node": {
       "release-type": "node",
-      "package-name": "@lethe/memory",
+      "package-name": "@teimurjan/lethe",
       "component": "lethe-node",
       "changelog-path": "CHANGELOG.md"
     }
