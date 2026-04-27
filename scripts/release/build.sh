@@ -17,20 +17,31 @@
 # Release alongside the macOS tarball you upload.
 #
 # Usage:
-#   scripts/release/build.sh                 # loose build into release_artifacts/
-#   scripts/release/build.sh --tag vX.Y.Z    # build into release_artifacts/<tag>/
-#                                              (the path the release pipeline expects;
-#                                              git add + commit when done)
+#   scripts/release/build.sh                 # macOS binaries + tarball
 #   scripts/release/build.sh --napi          # also build the napi .node
 #   scripts/release/build.sh --pypi          # also build the maturin wheel
 #
-# Without `--tag` the output is loose (gitignored, sanity-check only).
-# With `--tag vX.Y.Z` the script writes directly into the versioned
-# subdir that `release.yml`'s `commit` job will later append the
-# Linux/Windows artifacts to. The CI matrix does not rebuild macOS —
-# it trusts whatever you committed under `release_artifacts/<tag>/`.
+# Output goes flat into `release_artifacts/`. The directory always
+# holds **only the latest** release's binaries — committing the new
+# files overwrites the previous release's macOS entries in the
+# working tree. Older releases stay accessible via the GitHub
+# Releases page indefinitely.
 #
-# Files produced (suffixed with `--tag` going to subdir):
+# Standard release-time use (run once per release, while the
+# release-please PR is still open so you know the target version):
+#
+#   rm -rf release_artifacts/lethe-macos-arm64* \
+#          release_artifacts/lethe-claude-code-macos-arm64* \
+#          release_artifacts/lethe_memory-*-macosx*.whl
+#   scripts/release/build.sh --napi --pypi
+#   git add release_artifacts/
+#   git commit -m "chore(release): vX.Y.Z macos-arm64 artifacts"
+#   git push
+#
+# Then merge the release-please PR; CI matrix appends Linux/Windows
+# to the same directory.
+#
+# Files produced:
 #   * `lethe-macos-arm64`                       — `lethe` binary
 #   * `lethe-claude-code-macos-arm64`           — adapter binary
 #   * `lethe-macos-arm64.tar.gz`                — Homebrew tarball (binaries + README + LICENSE)
@@ -62,13 +73,11 @@ RUST_BINS=(
 
 BUILD_NAPI="false"
 BUILD_PYPI="false"
-TAG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --napi) BUILD_NAPI="true"; shift ;;
     --pypi) BUILD_PYPI="true"; shift ;;
-    --tag)  TAG="$2"; shift 2 ;;
     --help|-h)
       sed -n '/^# Usage:/,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
       exit 0 ;;
@@ -76,12 +85,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# When --tag is passed, write directly to the versioned subdir that
-# release.yml expects to find macOS artifacts in. Loose files are
-# gitignored; versioned subdir contents go through Git LFS.
-if [[ -n "$TAG" ]]; then
-  DIST_DIR="$DIST_DIR/$TAG"
-fi
 mkdir -p "$DIST_DIR"
 
 rustup target add "$TARGET" >/dev/null 2>&1 || true

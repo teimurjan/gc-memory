@@ -1,9 +1,10 @@
-# Released release artifacts go through Git LFS so the main-branch
-# history stays small. The `release.yml` workflow commits each
-# release's tarballs / wheels / .node files into
-# `release_artifacts/<tag>/`, which would otherwise bloat git's pack
-# files by hundreds of MB per release.
-release_artifacts/**/*.tar.gz filter=lfs diff=lfs merge=lfs -text
-release_artifacts/**/*.zip    filter=lfs diff=lfs merge=lfs -text
-release_artifacts/**/*.whl    filter=lfs diff=lfs merge=lfs -text
-release_artifacts/**/*.node   filter=lfs diff=lfs merge=lfs -text
+# Latest-release artifacts go through Git LFS so the main-branch
+# history stays small. The `release.yml` workflow commits the
+# tarballs / wheels / .node files into `release_artifacts/`, which
+# would otherwise bloat git's pack files by hundreds of MB per
+# release. Old versions remain accessible via the GitHub Releases
+# page; the repo only carries the latest set.
+release_artifacts/*.tar.gz filter=lfs diff=lfs merge=lfs -text
+release_artifacts/*.zip    filter=lfs diff=lfs merge=lfs -text
+release_artifacts/*.whl    filter=lfs diff=lfs merge=lfs -text
+release_artifacts/*.node   filter=lfs diff=lfs merge=lfs -text

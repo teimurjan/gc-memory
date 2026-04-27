@@ -16,17 +16,14 @@ dist/
 .coverage
 .pytest_cache/
 
-# `release_artifacts/` is shared between local builds and CI:
-#   * Top-level loose files (output of `scripts/release/build.sh`)
-#     are ignored — those are throwaway local sanity checks.
-#   * Versioned subdirs (`release_artifacts/v0.7.0/...`) are committed
-#     by `release.yml` on every release, tracked via Git LFS
-#     (see .gitattributes).
-release_artifacts/lethe*
-release_artifacts/*.whl
-release_artifacts/*.tar.gz
-release_artifacts/*.zip
-release_artifacts/*.node
+# `release_artifacts/` always holds **only the latest** release's
+# binaries (tracked via Git LFS — see .gitattributes). Each new
+# release overwrites the directory; older versions stay accessible
+# via the GitHub Releases page indefinitely. The folder is the same
+# place `scripts/release/build.sh` writes to and `release.yml`
+# uploads from — so a fresh local build of the macOS binaries
+# replaces the previous release's macOS files in working tree, and
+# CI's matrix appends Linux/Windows on top.
 
 # LaTeX build artifacts for paper.tex (root)
 paper.pdf

@@ -67,16 +67,17 @@ ONNX Runtime only links cleanly on the same platform it was compiled
 for; cross-compiling C++ from macOS hits libstdc++/MSVC-runtime ABI
 mismatches we don't want to fight, so each target builds natively.
 
-The local macOS files go in `release_artifacts/<tag>/`; CI appends
-its Linux/Windows files to the same versioned subdir. The whole
-folder is committed to main via Git LFS, then attached to the
-GitHub Release.
+The local macOS files go in `release_artifacts/`; CI appends its
+Linux/Windows files to the same flat folder. The folder always
+holds **only the latest** release's binaries (tracked via Git LFS —
+each new release overwrites the prior set in working tree). Older
+versions stay accessible via the GitHub Releases page indefinitely.
 
 ### Supported targets
 
 | Target | Friendly | Built where |
 |---|---|---|
-| `aarch64-apple-darwin` | `macos-arm64` | local: `scripts/release/build.sh --tag vX.Y.Z` |
+| `aarch64-apple-darwin` | `macos-arm64` | local: `scripts/release/build.sh` |
 | `x86_64-unknown-linux-gnu` | `linux-x64` | CI (`ubuntu-latest`) |
 | `aarch64-unknown-linux-gnu` | `linux-arm64` | CI (`ubuntu-24.04-arm`) |
 | `x86_64-pc-windows-msvc` | `windows-x64` | CI (`windows-latest`) |
@@ -101,13 +102,19 @@ published is `release.yml` after every artifact is attached.
 2. **Locally**, while the release-please PR is open (so you know the
    target version):
    ```bash
-   scripts/release/build.sh --tag vX.Y.Z --napi --pypi
-   git add release_artifacts/vX.Y.Z/
+   # Replace the previous release's macOS files
+   rm -f release_artifacts/lethe-macos-arm64* \
+         release_artifacts/lethe-claude-code-macos-arm64* \
+         release_artifacts/lethe_memory-*-macosx*.whl
+   scripts/release/build.sh --napi --pypi
+   git add release_artifacts/
    git commit -m "chore(release): vX.Y.Z macos-arm64 artifacts"
    git push
    ```
-   Bakes the macOS-arm64 binaries / `.node` / wheel into main under
-   `release_artifacts/vX.Y.Z/` via Git LFS.
+   The new macOS binaries / `.node` / wheel sit alongside the
+   previous release's Linux/Windows files in `release_artifacts/`
+   (those will be replaced by CI in step 4). Git LFS handles the
+   binary storage.
 3. Merge the release PR. `release-please.yml` tags the merge commit
    (`vX.Y.Z`) and creates a **draft** GitHub Release. No
    `release: published` event yet → registry-push workflows do not
@@ -116,9 +123,9 @@ published is `release.yml` after every artifact is attached.
    - **build** matrix on four native runners (Linux x64/arm64,
      Windows x64/arm64). No macOS — CI uses what you committed.
    - **commit** appends the matrix artifacts to the same
-     `release_artifacts/vX.Y.Z/` and pushes
+     `release_artifacts/` and pushes
      `chore(release): vX.Y.Z linux+windows artifacts [skip ci]`.
-   - **release** uploads everything in `release_artifacts/vX.Y.Z/`
+   - **release** uploads everything in `release_artifacts/`
      (your local macOS plus CI's Linux/Windows) to the draft
      Release, then runs `gh release edit --draft=false` — this is
      the moment `release: published` fires.
@@ -134,22 +141,19 @@ without rolling back the version bump.
 ### Local build script
 
 ```bash
-scripts/release/build.sh                       # loose output (gitignored, sanity check)
-scripts/release/build.sh --tag vX.Y.Z          # → release_artifacts/vX.Y.Z/
-scripts/release/build.sh --tag vX.Y.Z --napi   # plus .node binding
-scripts/release/build.sh --tag vX.Y.Z --pypi   # plus maturin wheel
+scripts/release/build.sh         # binaries + Homebrew tarball for macos-arm64
+scripts/release/build.sh --napi  # plus .node binding
+scripts/release/build.sh --pypi  # plus maturin wheel
 ```
 
-Without `--tag`, output lands directly in `release_artifacts/` as
-loose top-level files — gitignored, useful for sanity-checking the
-binary without making a release. With `--tag` the output lands in
-the versioned subdir the release pipeline expects to find macOS
-files in; commit it.
+Output always goes flat into `release_artifacts/`. The directory
+holds only the latest release's set (tracked via Git LFS); each new
+release overwrites the previous macOS entries.
 
 ### Git LFS
 
 Once cloned, run `git lfs install` once per machine. Without it,
-files in `release_artifacts/<tag>/` will fetch as small text pointers rather
+files in `release_artifacts/` will fetch as small text pointers rather
 than the real binaries. CI's `actions/checkout@v4` with `lfs: true`
 handles it automatically on workflow runs.
 

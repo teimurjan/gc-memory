@@ -8,19 +8,21 @@ name: release
 #   1. build       — matrix-build Linux + Windows tarballs + napi .nodes
 #                    + maturin wheels on native runners. macOS-arm64
 #                    is NOT in the matrix — the maintainer builds it
-#                    locally via `scripts/release/build.sh --tag vX.Y.Z`
-#                    and commits `release_artifacts/vX.Y.Z/lethe-macos-arm64*`
+#                    locally via `scripts/release/build.sh --napi --pypi`
+#                    and commits `release_artifacts/lethe-macos-arm64*`
 #                    before merging the release-please PR. ort's prebuilt
 #                    ONNX Runtime links cleanly only on native, so we
 #                    don't cross-compile anything.
 #   2. commit      — append the matrix's Linux/Windows artifacts to
-#                    `release_artifacts/<tag>/` next to the macOS files
-#                    you committed locally. Pushes a
+#                    `release_artifacts/` next to the macOS files you
+#                    committed locally. Pushes a
 #                    `chore(release): vX.Y.Z linux+windows artifacts
-#                    [skip ci]` commit. Git LFS handles the binary
-#                    storage so main's git history stays small.
-#   3. release     — upload everything in `release_artifacts/<tag>/`
-#                    (your local macOS plus CI's Linux/Windows) to the
+#                    [skip ci]` commit. The directory holds only the
+#                    latest release's binaries, tracked via Git LFS;
+#                    older versions stay accessible via the GitHub
+#                    Releases page.
+#   3. release     — upload everything in `release_artifacts/` (your
+#                    local macOS plus CI's Linux/Windows) to the
 #                    GitHub Release release-please created as a draft,
 #                    then flip the draft flag. Only at that moment does
 #                    `release: published` fire, fanning out to
@@ -135,7 +137,7 @@ jobs:
           lfs: true
       - uses: actions/download-artifact@v4
         with:
-          path: release_artifacts/${{ steps.tag.outputs.tag }}
+          path: release_artifacts
           merge-multiple: true
       - name: commit and push
         run: |
@@ -155,9 +157,9 @@ jobs:
     needs: commit
     runs-on: ubuntu-latest
     steps:
-      # Pull the freshly-committed `release_artifacts/<tag>/` from
-      # main (which now contains both your local macOS files and
-      # the matrix's Linux/Windows files). LFS resolves the blobs.
+      # Pull the freshly-committed `release_artifacts/` from main
+      # (which now contains both your local macOS files and the
+      # matrix's Linux/Windows files). LFS resolves the blobs.
       - uses: actions/checkout@v4
         with:
           ref: main
@@ -170,7 +172,7 @@ jobs:
           set -euo pipefail
           # release-please created the release as a draft (see
           # `"draft": true` in release-please-config.json). Upload
-          # everything in `release_artifacts/<tag>/`, then flip the
+          # everything in `release_artifacts/`, then flip the
           # draft flag — only at that moment does GitHub fire
           # `release: published`, which is the trigger the
           # registry-push workflows wait for. This avoids the race
@@ -178,5 +180,5 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --generate-notes
           fi
-          gh release upload "$TAG" "release_artifacts/${TAG}"/* --clobber
+          gh release upload "$TAG" release_artifacts/* --clobber
           gh release edit   "$TAG" --draft=false
