@@ -1,5 +1,5 @@
 {
-  "name": "@teimurjan/lethe",
+  "name": "lethe",
   "version": "0.6.0",
   "description": "Node bindings to the lethe memory store (Rust core via napi-rs).",
   "main": "index.js",
