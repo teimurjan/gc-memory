@@ -47,8 +47,7 @@ pub fn load_config(config_path: &Path) -> Result<CliConfig> {
     // Surface parse errors instead of silently falling back to defaults
     // — `config.toml` is user-controlled and a typo there should fail
     // loudly with a line/column from the toml crate.
-    toml::from_str::<CliConfig>(&txt)
-        .with_context(|| format!("parse {}", config_path.display()))
+    toml::from_str::<CliConfig>(&txt).with_context(|| format!("parse {}", config_path.display()))
 }
 
 pub fn save_config(config_path: &Path, cfg: &CliConfig) -> Result<()> {
