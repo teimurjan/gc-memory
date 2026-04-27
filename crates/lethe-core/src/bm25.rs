@@ -134,7 +134,9 @@ impl BM25Okapi {
             .enumerate()
             .map(|(i, freqs)| {
                 let dl = f64::from(self.doc_len[i]);
-                let len_norm = self.k1.mul_add(self.b * dl / self.avgdl - self.b + 1.0, 0.0);
+                let len_norm = self
+                    .k1
+                    .mul_add(self.b * dl / self.avgdl - self.b + 1.0, 0.0);
                 let mut s = 0.0_f64;
                 for (q, idf) in &resolved {
                     let tf = f64::from(*freqs.get(*q).unwrap_or(&0));

@@ -10,9 +10,9 @@ Each sub-bench has a tolerance band; the suite passes only when every
 component does. When a single suite fails, the markdown report points
 at the offending component so you don't have to bisect by hand.
 
-Same CLI shape as `bench/longmemeval.py`:
+Same CLI shape as `migration_benchmarks/longmemeval.py`:
   --impl python|rust  → emit JSON for one component spec
-  --compare           → run both, write `bench/results/COMPARE_COMPONENTS_*.md`
+  --compare           → run both, write `migration_benchmarks/results/COMPARE_COMPONENTS_*.md`
 
 The same query / pair fixtures are used across both impls so the diff
 is apples-to-apples.
@@ -328,7 +328,7 @@ def main(argv: list[str]) -> int:
         sys.stderr.write("--impl and --compare are mutually exclusive\n")
         return 2
     if not LME_RUST.exists():
-        sys.stderr.write("error: run `uv run python bench/prepare.py` first.\n")
+        sys.stderr.write("error: run `uv run python migration_benchmarks/prepare.py` first.\n")
         return 2
 
     if args.impl == "python":

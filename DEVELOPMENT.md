@@ -20,7 +20,7 @@ cargo test --workspace
 cd legacy && uv run pytest tests/ -q
 ```
 
-Rust: 68 unit tests, sub-second. Python: 178 production + 8 PyO3 parity = 186, ~3 minutes (the PyO3 set loads ONNX models). No network, no API keys required.
+Rust: 71 unit tests, sub-second (plus the CLI smoke + cross-impl npz tests). Python: 148 production + 8 PyO3 parity = 156, ~3 minutes (the PyO3 set loads ONNX models). No network, no API keys required.
 
 ## Run the CLI locally
 

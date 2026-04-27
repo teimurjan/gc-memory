@@ -3,12 +3,12 @@
 The migration-confidence ladder. Three suites, all 1-1 between Python
 and Rust: each script accepts `--impl python` or `--impl rust` and
 emits the same JSON shape; `--compare` runs both and writes a single
-markdown report under `bench/results/`.
+markdown report under `migration_benchmarks/results/`.
 
 ## Layout
 
 ```
-bench/
+migration_benchmarks/
 ├── README.md
 ├── _lib.py            # shared utilities
 ├── prepare.py         # one-time data export (gitignored output)
@@ -29,25 +29,25 @@ One-time setup (writes `data/lme_rust/` — flat-binary mirror of the
 prepared LongMemEval data, gitignored):
 
 ```bash
-uv run python bench/prepare.py
+uv run python migration_benchmarks/prepare.py
 ```
 
 Run any suite in compare mode:
 
 ```bash
-./bench/longmemeval.py --compare    # quality: NDCG@10, Recall@10
-./bench/components.py --compare     # numerical diff per component
-./bench/latency.py --compare        # cold + warm timing
+./migration_benchmarks/longmemeval.py --compare    # quality: NDCG@10, Recall@10
+./migration_benchmarks/components.py --compare     # numerical diff per component
+./migration_benchmarks/latency.py --compare        # cold + warm timing
 ```
 
 Or single-impl, JSON to stdout:
 
 ```bash
-./bench/longmemeval.py --impl python
-./bench/longmemeval.py --impl rust
+./migration_benchmarks/longmemeval.py --impl python
+./migration_benchmarks/longmemeval.py --impl rust
 ```
 
-`bench/results/COMPARE_<SUITE>_<host>_<date>.md` is the only file
+`migration_benchmarks/results/COMPARE_<SUITE>_<host>_<date>.md` is the only file
 written. Intermediate JSON outputs go through `tempfile` and are
 cleaned up on exit.
 

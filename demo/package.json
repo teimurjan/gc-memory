@@ -5,7 +5,7 @@
   "description": "Lethe video demo (Remotion).",
   "scripts": {
     "dev": "remotion studio",
-    "collect": "cd .. && uv run python demo/scripts/collect.py",
+    "collect": "bun run scripts/collect_napi.ts",
     "build:mp4": "remotion render lethe-demo out/lethe-demo.mp4 --codec=h264",
     "build:gif": "remotion render lethe-demo out/lethe-demo.gif --codec=gif --every-nth-frame=2 --width=1280",
     "build": "bun run collect && bun run build:mp4 && bun run build:gif"
@@ -14,6 +14,7 @@
     "@remotion/bundler": "4.0.250",
     "@remotion/cli": "4.0.250",
     "@remotion/paths": "4.0.250",
+    "lethe": "file:../crates/lethe-node",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "remotion": "4.0.250"

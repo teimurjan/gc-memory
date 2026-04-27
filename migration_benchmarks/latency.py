@@ -8,7 +8,7 @@ Measures the practical command-line latency you actually feel:
   - Warm retrieve: subprocess per query, full boot + retrieval. Same
     fixed corpus seeded once via Python, queried by both impls.
 
-Same CLI shape as the other suites. Outputs `bench/results/COMPARE_LATENCY_*.md`.
+Same CLI shape as the other suites. Outputs `migration_benchmarks/results/COMPARE_LATENCY_*.md`.
 """
 from __future__ import annotations
 

@@ -31,7 +31,7 @@ crates/               # Rust workspace (production); shared workspace version
 │                     #   → npm: lethe
 └── lethe-bench/      # internal parity bench helper binary (publish = false)
 
-benchmarks/           # Python ↔ Rust parity bench (1-1)
+migration_benchmarks/ # Python ↔ Rust parity bench (1-1, only for Rust migration)
 ├── prepare.py        # exports LongMemEval flat files for the Rust side
 ├── longmemeval.py    # NDCG@10 / Recall@10 across 5 retrieval configs
 ├── components.py     # BM25 / FlatIP / xenc per-component numerical diff
@@ -40,9 +40,11 @@ benchmarks/           # Python ↔ Rust parity bench (1-1)
 
 legacy/               # Pre-Rust Python implementation (kept for research trail)
 ├── pyproject.toml    # `uv pip install -e legacy/`
-├── lethe/            # Production library (178 tests) — same API, still ships
-└── benchmarks/       # Per-checkpoint research benchmarks (run_rif_*, etc.)
-└── tests/            # Pytest suite (178 + 8 PyO3 parity = 186)
+├── lethe/            # Library (CLI/TUI removed; lives in `crates/lethe-cli`)
+├── benchmarks/       # Per-checkpoint research benchmarks (run_rif_*, etc.)
+├── demo_scripts/     # Python data collectors for the Remotion demo video
+├── scripts/          # Dataset prep + enrichment runners
+└── tests/            # Pytest suite (148 production + 8 PyO3 parity = 156)
 
 plugins/claude-code/  # Claude Code plugin
 ├── hooks/            # SessionStart / UserPromptSubmit / Stop / SessionEnd
@@ -52,8 +54,6 @@ plugins/claude-code/  # Claude Code plugin
     └── recall-global/    # search memories across all registered projects (--all)
 
 .claude-plugin/       # Marketplace manifest (for `/plugin marketplace add`)
-
-scripts/              # Reproducibility utilities (dataset prep, enrichment runner)
 
 research/             # Experimental / non-production code
 ├── gc_mutation/      # Germinal-center mutation thread (checkpoints 1-10)
@@ -75,10 +75,10 @@ cd legacy && uv run pytest tests/ -v
 uv run python legacy/benchmarks/run_benchmark.py
 
 # Python ↔ Rust parity bench
-uv run python benchmarks/prepare.py
-uv run python benchmarks/longmemeval.py --compare
-uv run python benchmarks/components.py --compare
-uv run python benchmarks/latency.py --compare
+uv run python migration_benchmarks/prepare.py
+uv run python migration_benchmarks/longmemeval.py --compare
+uv run python migration_benchmarks/components.py --compare
+uv run python migration_benchmarks/latency.py --compare
 
 # CLI surface (Rust binary `lethe`)
 lethe                                    # no args → opens TUI (when stdout is a TTY)

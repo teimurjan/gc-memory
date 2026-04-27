@@ -231,13 +231,8 @@ pub fn reindex(memory_dir: &Path, store: &MemoryStore) -> Result<ReindexCounts, 
             let embs = bi.encode_batch(&body_refs)?;
             for (i, (id, session_id)) in new_meta.iter().enumerate() {
                 let emb = embs.row(i).to_owned();
-                let inserted = store.add_with_embedding(
-                    &new_bodies[i],
-                    emb,
-                    Some(id),
-                    session_id,
-                    0,
-                )?;
+                let inserted =
+                    store.add_with_embedding(&new_bodies[i], emb, Some(id), session_id, 0)?;
                 if inserted.is_some() {
                     counts.added += 1;
                 } else {

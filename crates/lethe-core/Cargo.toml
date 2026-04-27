@@ -39,18 +39,22 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 
 [[bench]]
 name = "bench_bm25"
+path = "benchmarks/bench_bm25.rs"
 harness = false
 
 [[bench]]
 name = "bench_faiss_flat"
+path = "benchmarks/bench_faiss_flat.rs"
 harness = false
 
 [[bench]]
 name = "bench_rrf"
+path = "benchmarks/bench_rrf.rs"
 harness = false
 
 [[bench]]
 name = "bench_rif"
+path = "benchmarks/bench_rif.rs"
 harness = false
 
 [lints]

@@ -1,5 +1,5 @@
 results/
-!benchmarks/results/
+!migration_benchmarks/results/
 !legacy/benchmarks/results/
 legacy/benchmarks/results/int8_embeds/
 data/

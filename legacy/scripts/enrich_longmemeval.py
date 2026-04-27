@@ -22,8 +22,9 @@ from pathlib import Path
 
 DATA = Path("data")
 
-# Ensure lethe is importable when run from repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "legacy"))
+# Inside legacy/ the package is at `legacy/lethe/`; parent.parent is
+# `legacy/` itself, which is on sys.path after `pip install -e legacy/`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lethe.enrichment import enrich_dataset, EnrichmentStats  # noqa: E402
 

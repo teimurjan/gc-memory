@@ -5,8 +5,9 @@
 //!   * No-op (exit 0) when the npz is absent or already migrated.
 //!   * Reads ids + f32 vectors from `<index>/embeddings.npz` and writes
 //!     them in one transactional batch to the DuckDB store.
-//!   * Renames the npz to `embeddings.npz.bak` so subsequent opens see
-//!     a clean Rust-native store with no fallback path.
+//!   * Sweeps every Python-era leftover from the index folder
+//!     (`embeddings.npz`, `embeddings.npz.bak`, `query_embeddings.npz`,
+//!     `faiss.index`) so the Rust runtime sees only Rust-native files.
 //!   * `--all` iterates every registered project in `~/.lethe/projects.json`.
 
 use std::path::Path;
@@ -43,10 +44,7 @@ pub fn run(root: Option<&str>, all: bool, json_output: bool) -> Result<i32> {
         }
         // Per-project migrations are independent (separate DuckDB +
         // npz files); fan out across cores.
-        out.projects = entries
-            .par_iter()
-            .map(|e| migrate_one(&e.root))
-            .collect();
+        out.projects = entries.par_iter().map(|e| migrate_one(&e.root)).collect();
     } else {
         let paths = resolve(root);
         out.projects.push(migrate_one(&paths.root));
@@ -82,35 +80,57 @@ fn migrate_one(project_root: &Path) -> ProjectResult {
     }
 }
 
+/// Files in `.lethe/index/` that the legacy Python implementation
+/// wrote but the Rust runtime never reads. Removed on successful
+/// migrate so the index folder reflects only Rust-native artifacts.
+const LEGACY_INDEX_LEFTOVERS: &[&str] = &[
+    "embeddings.npz",
+    "embeddings.npz.bak",
+    "query_embeddings.npz",
+    "faiss.index",
+];
+
 fn try_migrate(project_root: &Path) -> Result<(String, usize)> {
     let index = project_root.join(".lethe").join("index");
     let duckdb_path = index.join("lethe.duckdb");
     let npz_path = index.join("embeddings.npz");
-    let bak_path = index.join("embeddings.npz.bak");
 
     if !duckdb_path.exists() {
         return Ok(("no-store".into(), 0));
     }
-    if !npz_path.exists() {
-        if bak_path.exists() {
-            return Ok(("already-migrated".into(), 0));
-        }
-        return Ok(("no-npz".into(), 0));
-    }
 
     let db = MemoryDb::open(&duckdb_path).context("open lethe.duckdb")?;
-    if !db.embeddings_empty()? {
-        // Rust store already has embeddings; rename the orphan npz so
-        // future opens stop nudging the user.
-        std::fs::rename(&npz_path, &bak_path).context("rename npz to .bak")?;
-        return Ok(("already-migrated".into(), 0));
+    let already = !db.embeddings_empty()?;
+
+    let count = if !already && npz_path.exists() {
+        let map = npz::load_embeddings(&npz_path).context("read embeddings.npz")?;
+        let n = map.len();
+        let items: Vec<_> = map.into_iter().collect();
+        db.save_embeddings_bulk(&items)
+            .context("write entry_embeddings")?;
+        n
+    } else {
+        0
+    };
+
+    // Sweep legacy artifacts the Rust runtime never opens. Idempotent.
+    let mut removed: Vec<&str> = Vec::new();
+    for name in LEGACY_INDEX_LEFTOVERS {
+        let p = index.join(name);
+        if p.exists() {
+            std::fs::remove_file(&p).with_context(|| format!("remove leftover {}", p.display()))?;
+            removed.push(name);
+        }
     }
 
-    let map = npz::load_embeddings(&npz_path).context("read embeddings.npz")?;
-    let count = map.len();
-    let items: Vec<_> = map.into_iter().collect();
-    db.save_embeddings_bulk(&items)
-        .context("write entry_embeddings")?;
-    std::fs::rename(&npz_path, &bak_path).context("rename npz to .bak")?;
-    Ok(("migrated".into(), count))
+    let status = if count > 0 {
+        "migrated"
+    } else if already {
+        "already-migrated"
+    } else if removed.is_empty() {
+        "no-npz"
+    } else {
+        "cleaned-up"
+    };
+    Ok((status.into(), count))
 }
