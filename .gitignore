@@ -15,6 +15,19 @@ dist/
 .DS_Store
 .coverage
 .pytest_cache/
+
+# `release_artifacts/` is shared between local builds and CI:
+#   * Top-level loose files (output of `scripts/release/build.sh`)
+#     are ignored — those are throwaway local sanity checks.
+#   * Versioned subdirs (`release_artifacts/v0.7.0/...`) are committed
+#     by `release.yml` on every release, tracked via Git LFS
+#     (see .gitattributes).
+release_artifacts/lethe*
+release_artifacts/*.whl
+release_artifacts/*.tar.gz
+release_artifacts/*.zip
+release_artifacts/*.node
+
 # LaTeX build artifacts for paper.tex (root)
 paper.pdf
 paper.aux

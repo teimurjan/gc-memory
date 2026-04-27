@@ -146,6 +146,12 @@ If a change is purely landing-page content (badges, plugin GIFs,
   to the GitHub Release as assets. The `release-rust.yml`,
   `release-pypi.yml`, `release-npm.yml` workflows then publish from
   those assets — they do **not** run their own build matrices.
+- **Intel Mac (`x86_64-apple-darwin`) is not a supported target.**
+  Upstream `ort` dropped Intel Mac support in rc.11 (changelog at
+  https://github.com/pykeio/ort/releases/tag/v2.0.0-rc.11), and
+  there is no version going forward that ships a prebuilt ONNX
+  Runtime for it. Apple Silicon and Intel/ARM Linux/Windows are
+  supported.
 - Required repo secrets for a successful publish:
   - `CARGO_REGISTRY_TOKEN` — crates.io API token, scoped to `lethe-*`
   - `NPM_TOKEN` — npm Granular Access Token, scoped to `lethe`
