@@ -1,0 +1,51 @@
+name: release-npm
+
+# Triggered when release-please publishes a GitHub Release.
+# Picks up napi-rs `.node` files uploaded to the release as assets and
+# publishes the `lethe` npm package (per-platform sub-packages plus
+# the meta package).
+#
+# `.node` files are built locally via `scripts/release/build.sh --napi`
+# and uploaded to the GitHub Release before this runs.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to current ref)."
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/lethe-node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: download .node assets from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "lethe-*.node" --dir . || true
+          ls -la *.node || echo "no .node files attached to the release; skipping npm publish"
+      - run: npm install
+      - run: npx napi prepublish -t npm --skip-gh-release
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,24 @@
+[package]
+name = "lethe-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Node.js bindings for lethe-core via napi-rs."
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lethe-core = { path = "../lethe-core" }
+napi = { version = "2.16", default-features = false, features = ["napi4", "tokio_rt"] }
+napi-derive = "2.16"
+tokio = { workspace = true }
+
+[build-dependencies]
+napi-build = "2.1"
+
+[lints]
+workspace = true

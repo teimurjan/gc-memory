@@ -1,7 +1,11 @@
 results/
-!benchmarks/results/
-benchmarks/results/int8_embeds/
+!migration_benchmarks/results/
+!legacy/benchmarks/results/
+legacy/benchmarks/results/int8_embeds/
 data/
+tmp_data/
+tmp_writeup/
+tmp_results/
 __pycache__/
 *.egg-info/
 .venv/
@@ -11,16 +15,33 @@ dist/
 .DS_Store
 .coverage
 .pytest_cache/
-writeup/
-arxiv/*.pdf
-arxiv/*.aux
-arxiv/*.log
-arxiv/*.out
-arxiv/*.toc
-arxiv/*.bbl
-arxiv/*.blg
-arxiv/*.synctex.gz
+
+# `release_artifacts/` always holds **only the latest** release's
+# binaries (tracked via Git LFS — see .gitattributes). Each new
+# release overwrites the directory; older versions stay accessible
+# via the GitHub Releases page indefinitely. The folder is the same
+# place `scripts/release/build.sh` writes to and `release.yml`
+# uploads from — so a fresh local build of the macOS binaries
+# replaces the previous release's macOS files in working tree, and
+# CI's matrix appends Linux/Windows on top.
+
+# LaTeX build artifacts for paper.tex (root)
+paper.pdf
+paper.aux
+paper.log
+paper.out
+paper.toc
+paper.bbl
+paper.blg
+paper.synctex.gz
 .memsearch/
 .claude/
 .env
 .lethe
+
+# Rust workspace
+target/
+Cargo.lock.bak
+**/*.rs.bk
+crates/lethe-node/node_modules/
+crates/lethe-node/*.node

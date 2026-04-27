@@ -1,0 +1,184 @@
+name: release
+
+# Single end-to-end release pipeline.
+#
+# Triggered when release-please pushes a `vX.Y.Z` tag (or via manual
+# dispatch with the same tag). Runs three stages:
+#
+#   1. build       — matrix-build Linux + Windows tarballs + napi .nodes
+#                    + maturin wheels on native runners. macOS-arm64
+#                    is NOT in the matrix — the maintainer builds it
+#                    locally via `scripts/release/build.sh --napi --pypi`
+#                    and commits `release_artifacts/lethe-macos-arm64*`
+#                    before merging the release-please PR. ort's prebuilt
+#                    ONNX Runtime links cleanly only on native, so we
+#                    don't cross-compile anything.
+#   2. commit      — append the matrix's Linux/Windows artifacts to
+#                    `release_artifacts/` next to the macOS files you
+#                    committed locally. Pushes a
+#                    `chore(release): vX.Y.Z linux+windows artifacts
+#                    [skip ci]` commit. The directory holds only the
+#                    latest release's binaries, tracked via Git LFS;
+#                    older versions stay accessible via the GitHub
+#                    Releases page.
+#   3. release     — upload everything in `release_artifacts/` (your
+#                    local macOS plus CI's Linux/Windows) to the
+#                    GitHub Release release-please created as a draft,
+#                    then flip the draft flag. Only at that moment does
+#                    `release: published` fire, fanning out to
+#                    `release-rust.yml`, `release-pypi.yml`,
+#                    `release-npm.yml`.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.7.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.friendly }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,    friendly: linux-x64,      rustflags: "-C target-cpu=haswell" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu,   friendly: linux-arm64,    rustflags: "-C target-cpu=cortex-a72" }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,      friendly: windows-x64,    rustflags: "-C target-cpu=haswell" }
+          - { os: windows-11-arm,   target: aarch64-pc-windows-msvc,     friendly: windows-arm64,  rustflags: "" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: build cli + claude-code
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }} -p lethe-cli -p lethe-claude-code
+      - name: package tarball / zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="lethe-${{ matrix.friendly }}"
+          mkdir -p "$STAGE"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/lethe.exe"             "$STAGE/"
+            cp "target/${{ matrix.target }}/release/lethe-claude-code.exe" "$STAGE/"
+          else
+            cp "target/${{ matrix.target }}/release/lethe"             "$STAGE/"
+            cp "target/${{ matrix.target }}/release/lethe-claude-code" "$STAGE/"
+          fi
+          cp README.md LICENSE "$STAGE/" 2>/dev/null || true
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "${STAGE}.zip" "$STAGE"
+          else
+            tar -czf "${STAGE}.tar.gz" "$STAGE"
+          fi
+      - name: build napi .node
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --target ${{ matrix.target }} -p lethe-node
+          case "${{ runner.os }}" in
+            Windows) src="target/${{ matrix.target }}/release/lethe_node.dll" ;;
+            Linux)   src="target/${{ matrix.target }}/release/liblethe_node.so" ;;
+            *)       src="target/${{ matrix.target }}/release/liblethe_node.dylib" ;;
+          esac
+          cp "$src" "lethe-${{ matrix.friendly }}.node"
+      - name: build maturin wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: crates/lethe-py
+          target: ${{ matrix.target }}
+          args: --release --out wheels --strip
+          manylinux: auto
+      - name: collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          mv lethe-${{ matrix.friendly }}.* out/ 2>/dev/null || true
+          mv crates/lethe-py/wheels/*.whl out/ 2>/dev/null || true
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lethe-${{ matrix.friendly }}
+          path: out/
+
+  commit:
+    name: commit artifacts to repo
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          lfs: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: release_artifacts
+          merge-multiple: true
+      - name: commit and push
+        run: |
+          set -euo pipefail
+          git config user.name  "lethe-release-bot"
+          git config user.email "lethe-release-bot@users.noreply.github.com"
+          git add release_artifacts/
+          if git diff --cached --quiet; then
+            echo "no artifact changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(release): ${{ steps.tag.outputs.tag }} linux+windows artifacts [skip ci]"
+          git push origin main
+
+  release:
+    name: create GitHub Release
+    needs: commit
+    runs-on: ubuntu-latest
+    steps:
+      # Pull the freshly-committed `release_artifacts/` from main
+      # (which now contains both your local macOS files and the
+      # matrix's Linux/Windows files). LFS resolves the blobs.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: true
+      - name: upload assets and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.commit.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # release-please created the release as a draft (see
+          # `"draft": true` in release-please-config.json). Upload
+          # everything in `release_artifacts/`, then flip the
+          # draft flag — only at that moment does GitHub fire
+          # `release: published`, which is the trigger the
+          # registry-push workflows wait for. This avoids the race
+          # where they'd otherwise run before any assets exist.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --generate-notes
+          fi
+          gh release upload "$TAG" release_artifacts/* --clobber
+          gh release edit   "$TAG" --draft=false

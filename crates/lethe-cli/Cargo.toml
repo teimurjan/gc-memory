@@ -1,0 +1,28 @@
+[package]
+name = "lethe-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Command-line interface for lethe — ships as the `lethe` binary."
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "lethe"
+path = "src/main.rs"
+
+[dependencies]
+lethe-core = { path = "../lethe-core", version = "0.6.0" }
+lethe-tui = { path = "../lethe-tui", version = "0.6.0" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

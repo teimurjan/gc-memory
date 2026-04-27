@@ -24,8 +24,8 @@ Find memories relevant to: $ARGUMENTS
 ## Steps
 
 1. **Search.** Run the CLI:
-   - Primary: `lethe search "<query>" --top-k 5 --json-output`
-   - Fallback (CLI not on PATH): `uvx --from git+https://github.com/teimurjan/lethe lethe search "<query>" --top-k 5 --json-output`
+   - `lethe search "<query>" --top-k 5 --json-output`
+   - If `lethe` is not on PATH, ask the user to install it: `brew install teimurjan/lethe/lethe` (macOS / Linuxbrew) or `cargo install lethe-cli`.
 
    Output is JSON: `[{"id": "...", "content": "...", "score": 4.2}, ...]`.
 
@@ -35,7 +35,7 @@ Find memories relevant to: $ARGUMENTS
 
 4. **Drill further (only if critical).** If an expanded chunk contains a progressive-disclosure anchor of the form `<!-- session:<uuid> turn:<uuid> transcript:<path> -->` *and* the user's question genuinely needs the original dialogue (e.g. debugging a decision, tracing a subtle error), run:
 
-   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/transcript.py" <transcript-path> --turn <turn-uuid>`
+   `lethe-claude-code transcript <transcript-path> --turn <turn-uuid>`
 
    This returns the user turn and assistant response as plain text.
 

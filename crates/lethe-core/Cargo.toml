@@ -1,0 +1,62 @@
+[package]
+name = "lethe-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Core retrieval library for lethe (Rust port). Hybrid BM25 + dense + cross-encoder rerank with clustered RIF."
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ndarray.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sha1.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+fs2.workspace = true
+duckdb.workspace = true
+ort.workspace = true
+tokenizers.workspace = true
+hf-hub.workspace = true
+bincode.workspace = true
+toml.workspace = true
+walkdir.workspace = true
+hex.workspace = true
+once_cell.workspace = true
+npyz.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"
+approx = "0.5"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "bench_bm25"
+path = "benchmarks/bench_bm25.rs"
+harness = false
+
+[[bench]]
+name = "bench_faiss_flat"
+path = "benchmarks/bench_faiss_flat.rs"
+harness = false
+
+[[bench]]
+name = "bench_rrf"
+path = "benchmarks/bench_rrf.rs"
+harness = false
+
+[[bench]]
+name = "bench_rif"
+path = "benchmarks/bench_rif.rs"
+harness = false
+
+[lints]
+workspace = true

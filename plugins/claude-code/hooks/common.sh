@@ -7,8 +7,11 @@
 #   LETHE_MEMORY_DIR  — $LETHE_DIR/memory
 #   LETHE_INDEX_DIR   — $LETHE_DIR/index
 #   LETHE_STDIN_JSON  — raw JSON payload read from stdin (may be empty)
-#   LETHE_CLI         — full command for invoking the lethe CLI (either `lethe`
-#                       on PATH or `uvx --from git+... lethe`)
+#   LETHE_CLI         — `lethe` if the binary is on PATH, else empty (the
+#                       hooks no-op when empty so a missing binary is not
+#                       fatal). Install via `brew install teimurjan/lethe/lethe`,
+#                       `cargo install lethe-cli`, or a release tarball from
+#                       https://github.com/teimurjan/lethe/releases.
 #
 # Helpers:
 #   _json_val <key>           — extract a string/scalar from LETHE_STDIN_JSON
@@ -17,8 +20,6 @@
 #   _read_stdin_with_timeout  — populate LETHE_STDIN_JSON with a 2s budget
 
 set -o pipefail
-
-LETHE_INSTALL_SOURCE="${LETHE_INSTALL_SOURCE:-git+https://github.com/teimurjan/lethe}"
 
 # --- Paths -------------------------------------------------------------------
 
@@ -39,10 +40,6 @@ _log() {
 
 if command -v lethe >/dev/null 2>&1; then
   LETHE_CLI="lethe"
-elif command -v uvx >/dev/null 2>&1; then
-  LETHE_CLI="uvx --from ${LETHE_INSTALL_SOURCE} lethe"
-elif [ -x "$HOME/.local/bin/uvx" ]; then
-  LETHE_CLI="$HOME/.local/bin/uvx --from ${LETHE_INSTALL_SOURCE} lethe"
 else
   LETHE_CLI=""
 fi
@@ -81,28 +78,37 @@ _read_stdin_with_timeout() {
 # --- JSON helpers ------------------------------------------------------------
 
 _json_val() {
+  # Flat top-level field extractor for the Claude Code hook stdin
+  # payload (always a flat object whose values are strings/bools/
+  # numbers). Pure awk so the plugin stays Python-free.
   local key="$1"
   [ -z "${LETHE_STDIN_JSON}" ] && return 0
-  if command -v python3 >/dev/null 2>&1; then
-    LETHE_STDIN_JSON="${LETHE_STDIN_JSON}" python3 - "$key" <<'PY' 2>/dev/null
-import json, os, sys
-key = sys.argv[1]
-try:
-    data = json.loads(os.environ.get("LETHE_STDIN_JSON", ""))
-except json.JSONDecodeError:
-    sys.exit(0)
-cur = data
-for part in key.split("."):
-    if isinstance(cur, dict) and part in cur:
-        cur = cur[part]
-    else:
-        sys.exit(0)
-if isinstance(cur, (dict, list)):
-    sys.stdout.write(json.dumps(cur))
-else:
-    sys.stdout.write("" if cur is None else str(cur))
-PY
-  fi
+  printf '%s' "${LETHE_STDIN_JSON}" | awk -v k="$key" '
+    BEGIN { found = 0 }
+    {
+      # Strings: "key": "value" (handles \" inside the value).
+      pat = "\"" k "\"[ \t]*:[ \t]*\"(\\\\\"|[^\"])*\""
+      if (match($0, pat)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^[^:]*:[ \t]*"/, "", s)
+        sub(/"$/, "", s)
+        gsub(/\\"/, "\"", s)
+        print s
+        found = 1
+        exit
+      }
+      # Booleans / numbers: "key": value (no quotes, ends at , or }).
+      pat2 = "\"" k "\"[ \t]*:[ \t]*[^,}]*"
+      if (match($0, pat2)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^[^:]*:[ \t]*/, "", s)
+        sub(/[ \t]*$/, "", s)
+        print s
+        found = 1
+        exit
+      }
+    }
+  '
 }
 
 _sanitize_session_id() {
@@ -123,14 +129,14 @@ _sanitize_session_id() {
 }
 
 _json_encode_str() {
+  # Pure-bash JSON string encoder. The previous Python branch was
+  # removed when the plugin went Python-free; this fallback handles
+  # the cases that show up in hook payloads (text content with \, ",
+  # \n, \t).
   local s="$1"
-  if command -v python3 >/dev/null 2>&1; then
-    LETHE_ENC_S="$s" python3 -c 'import json, os; print(json.dumps(os.environ["LETHE_ENC_S"]), end="")'
-  else
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\t'/\\t}"
-    printf '"%s"' "$s"
-  fi
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\t'/\\t}"
+  printf '"%s"' "$s"
 }

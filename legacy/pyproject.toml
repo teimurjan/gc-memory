@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+# Renamed (was `lethe-memory`) so the published Rust binding wheel can
+# claim that name on PyPI. The legacy library is no longer published;
+# this distribution name is only meaningful inside the dev venv.
+name = "lethe-memory-legacy"
+version = "0.6.0" # x-release-please-version
+description = "Legacy Python implementation of lethe (kept for the research-journey trail)."
+readme = "../README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "faiss-cpu>=1.7",
+    "fastembed>=0.4",
+    "numpy>=1.24",
+    "rank_bm25>=0.2",
+    "anthropic>=0.30",
+    "duckdb>=0.10",
+]
+
+[project.optional-dependencies]
+# sentence-transformers/torch live here because benchmark scripts construct
+# them directly for reproducibility with published NDCG numbers. The CLI
+# (Rust binary `lethe`) uses the ONNX `ort` crate, not these deps.
+benchmarks = ["beir>=2.0", "datasets>=2.0", "matplotlib>=3.7", "tqdm>=4.60", "sentence-transformers>=2.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "mypy>=1.0"]
+
+# CLI + TUI moved to the Rust binary in `crates/lethe-cli`; this
+# package is the legacy Python library kept for the research-journey
+# trail.
+
+[tool.hatch.build.targets.wheel]
+packages = ["lethe"]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["faiss", "datasets", "beir.*", "torch", "torch.*", "rank_bm25", "duckdb"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

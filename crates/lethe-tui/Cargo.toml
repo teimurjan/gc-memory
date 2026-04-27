@@ -1,0 +1,23 @@
+[package]
+name = "lethe-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Terminal UI for lethe (Rust port, ratatui)."
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+lethe-core = { path = "../lethe-core", version = "0.6.0" }
+ratatui.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

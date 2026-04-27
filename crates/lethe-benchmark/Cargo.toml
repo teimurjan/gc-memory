@@ -1,0 +1,24 @@
+[package]
+name = "lethe-benchmark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "LongMemEval benchmark harness for the Rust port. Outputs JSON for parity comparison."
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "lethe-benchmark"
+path = "src/main.rs"
+
+[dependencies]
+lethe-core = { path = "../lethe-core" }
+ndarray.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true
