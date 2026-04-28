@@ -2,8 +2,10 @@ name: release
 
 # Single end-to-end release pipeline.
 #
-# Triggered when release-please pushes a `vX.Y.Z` tag (or via manual
-# dispatch with the same tag). Runs three stages:
+# Triggered when release-please pushes a `lethe-vX.Y.Z` tag (the root
+# package's component-prefixed tag — release-please prefixes tags with
+# the package component because the manifest declares two packages).
+# Also runs on manual dispatch with the same tag. Runs three stages:
 #
 #   1. build       — matrix-build Linux + Windows tarballs + napi .nodes
 #                    + maturin wheels on native runners. macOS-arm64
@@ -32,11 +34,11 @@ name: release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'lethe-v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.7.0)"
+        description: "Release tag (e.g. lethe-v0.7.0)"
         required: true
 
 permissions:
