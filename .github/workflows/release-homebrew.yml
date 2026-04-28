@@ -29,7 +29,6 @@ jobs:
           set -euo pipefail
           VERSION="${TAG#v}"
           ARM_TAR="lethe-macos-arm64.tar.gz"
-          X64_TAR="lethe-macos-x64.tar.gz"
 
           # Pull whichever macOS tarballs the human uploaded to the release.
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
