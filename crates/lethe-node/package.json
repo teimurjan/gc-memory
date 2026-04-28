@@ -1,13 +1,16 @@
 {
-  "name": "lethe",
+  "name": "@lethe-memory/lethe",
   "version": "0.7.0",
   "description": "Node bindings to the lethe memory store (Rust core via napi-rs).",
   "main": "index.js",
   "types": "index.d.ts",
   "license": "MIT",
   "repository": "github:teimurjan/lethe",
+  "publishConfig": {
+    "access": "public"
+  },
   "napi": {
-    "name": "lethe",
+    "name": "@lethe-memory/lethe",
     "triples": {
       "defaults": false,
       "additional": [

@@ -40,22 +40,16 @@
           "type": "json",
           "path": ".claude-plugin/marketplace.json",
           "jsonpath": "$.plugins[*].version"
+        },
+        {
+          "type": "json",
+          "path": "crates/lethe-node/package.json",
+          "jsonpath": "$.version"
         }
       ]
-    },
-    "crates/lethe-node": {
-      "release-type": "node",
-      "package-name": "lethe",
-      "component": "lethe-node",
-      "changelog-path": "CHANGELOG.md"
     }
   },
   "plugins": [
-    {
-      "type": "linked-versions",
-      "groupName": "lethe",
-      "components": ["lethe", "lethe-node"]
-    },
     {
       "type": "sentence-case"
     }

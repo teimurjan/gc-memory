@@ -88,32 +88,41 @@ jobs:
           # are not treated as cargo profile dirs.
           mkdir -p target/duckdb-download
           printf 'Signature: 8a477f597d28d172\n' > target/duckdb-download/CACHEDIR.TAG
-      - name: build cli + claude-code
+      - name: build cli + claude-code + napi
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         shell: bash
-        run: cargo build --release --target ${{ matrix.target }} -p lethe-cli -p lethe-claude-code
-      - name: package tarball / zip
+        # One cargo invocation builds all three crates so the workspace
+        # dep graph (the bulk of compile time) is compiled exactly once.
+        # Maturin still runs separately because PyO3's `ext-module`
+        # feature changes the link recipe; it'll reuse the warm target/
+        # for shared deps.
+        run: cargo build --release --target ${{ matrix.target }} -p lethe-cli -p lethe-claude-code -p lethe-node
+      - name: package tarball / zip + collect napi
         shell: bash
         run: |
           set -euo pipefail
           STAGE="lethe-${{ matrix.friendly }}"
           DEPS="target/${{ matrix.target }}/release/deps"
+          REL="target/${{ matrix.target }}/release"
           mkdir -p "$STAGE"
           # Bin crates' build.rs sets rpath=@loader_path/$ORIGIN, so
           # libduckdb only resolves when shipped next to the binary.
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/lethe.exe"             "$STAGE/"
-            cp "target/${{ matrix.target }}/release/lethe-claude-code.exe" "$STAGE/"
-            cp "$DEPS/duckdb.dll"                                          "$STAGE/"
+            cp "$REL/lethe.exe"             "$STAGE/"
+            cp "$REL/lethe-claude-code.exe" "$STAGE/"
+            cp "$DEPS/duckdb.dll"           "$STAGE/"
+            cp "$REL/lethe_node.dll"        "lethe-${{ matrix.friendly }}.node"
           elif [ "${{ runner.os }}" = "Linux" ]; then
-            cp "target/${{ matrix.target }}/release/lethe"             "$STAGE/"
-            cp "target/${{ matrix.target }}/release/lethe-claude-code" "$STAGE/"
-            cp "$DEPS/libduckdb.so"                                    "$STAGE/"
+            cp "$REL/lethe"             "$STAGE/"
+            cp "$REL/lethe-claude-code" "$STAGE/"
+            cp "$DEPS/libduckdb.so"     "$STAGE/"
+            cp "$REL/liblethe_node.so"  "lethe-${{ matrix.friendly }}.node"
           else
-            cp "target/${{ matrix.target }}/release/lethe"             "$STAGE/"
-            cp "target/${{ matrix.target }}/release/lethe-claude-code" "$STAGE/"
-            cp "$DEPS/libduckdb.dylib"                                 "$STAGE/"
+            cp "$REL/lethe"                "$STAGE/"
+            cp "$REL/lethe-claude-code"    "$STAGE/"
+            cp "$DEPS/libduckdb.dylib"     "$STAGE/"
+            cp "$REL/liblethe_node.dylib"  "lethe-${{ matrix.friendly }}.node"
           fi
           cp README.md LICENSE "$STAGE/" 2>/dev/null || true
           if [ "${{ runner.os }}" = "Windows" ]; then
@@ -121,19 +130,6 @@ jobs:
           else
             tar -czf "${STAGE}.tar.gz" "$STAGE"
           fi
-      - name: build napi .node
-        env:
-          RUSTFLAGS: ${{ matrix.rustflags }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --release --target ${{ matrix.target }} -p lethe-node
-          case "${{ runner.os }}" in
-            Windows) src="target/${{ matrix.target }}/release/lethe_node.dll" ;;
-            Linux)   src="target/${{ matrix.target }}/release/liblethe_node.so" ;;
-            *)       src="target/${{ matrix.target }}/release/liblethe_node.dylib" ;;
-          esac
-          cp "$src" "lethe-${{ matrix.friendly }}.node"
       - name: build maturin wheel
         uses: PyO3/maturin-action@v1
         with:

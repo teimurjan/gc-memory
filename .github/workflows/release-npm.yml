@@ -76,23 +76,33 @@ jobs:
             [win32-arm64-msvc]=duckdb.dll
           )
 
+          # napi-rs v2 with scoped name (`@lethe-memory/lethe`) lays
+          # each per-platform package out as:
+          #   npm/<triple>/
+          #     package.json                       (name: @lethe-memory/lethe-<triple>)
+          #     @lethe-memory/lethe.<triple>.node  (referenced by `main`)
+          # libduckdb must sit next to the `.node` for the rpath
+          # (`@loader_path`/`$ORIGIN`) to resolve, so it goes into the
+          # same `@lethe-memory/` subdirectory.
           mkdir -p _staging
           for triple in "${!FRIENDLY[@]}"; do
             dir="npm/${triple}"
             [ -d "$dir" ] || continue
             f="${FRIENDLY[$triple]}"
             lib="${LIBNAME[$triple]}"
+            inner="${dir}/@lethe-memory"
+            mkdir -p "$inner"
 
-            # Pull `.node` directly into the per-platform dir.
+            # Pull `.node` into the scoped subdir.
             if ! gh release download "$TAG" \
                   --repo "$GITHUB_REPOSITORY" \
                   --pattern "lethe-${f}.node" \
-                  --dir "$dir" 2>/dev/null; then
+                  --dir "$inner" 2>/dev/null; then
               echo "no .node for $f; skipping $triple"
               rm -rf "$dir"
               continue
             fi
-            mv "$dir/lethe-${f}.node" "$dir/lethe.${triple}.node"
+            mv "$inner/lethe-${f}.node" "$inner/lethe.${triple}.node"
 
             # Pull the tarball/zip into staging and extract libduckdb.
             rm -rf "_staging/${f}"
@@ -106,14 +116,15 @@ jobs:
                 --pattern "lethe-${f}.tar.gz" --dir "_staging/${f}"
               tar -xzf "_staging/${f}/lethe-${f}.tar.gz" -C "_staging/${f}"
             fi
-            cp "_staging/${f}/lethe-${f}/${lib}" "$dir/${lib}"
+            cp "_staging/${f}/lethe-${f}/${lib}" "$inner/${lib}"
 
-            # Patch `files` to ship libduckdb alongside the `.node`.
+            # Patch `files` so the published tarball includes libduckdb
+            # alongside the `.node` inside the scoped subdir.
             tmp="$(mktemp)"
-            jq --arg lib "$lib" '.files += [$lib]' "$dir/package.json" > "$tmp"
+            jq --arg lib "@lethe-memory/${lib}" '.files += [$lib]' "$dir/package.json" > "$tmp"
             mv "$tmp" "$dir/package.json"
 
-            echo "staged $triple: $(ls "$dir" | tr '\n' ' ')"
+            echo "staged $triple: $(ls -R "$dir" | tr '\n' ' ')"
           done
           rm -rf _staging
 

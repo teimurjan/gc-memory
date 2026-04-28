@@ -45,3 +45,4 @@ Cargo.lock.bak
 **/*.rs.bk
 crates/lethe-node/node_modules/
 crates/lethe-node/*.node
+crates/lethe-node/@lethe-memory/

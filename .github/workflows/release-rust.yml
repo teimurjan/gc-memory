@@ -31,6 +31,11 @@ jobs:
       - name: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          # `cargo publish` runs a build verification before upload.
+          # libduckdb-sys' build.rs needs this to download the prebuilt
+          # libduckdb instead of trying to link against a non-existent
+          # system one (`cannot find -lduckdb`).
+          DUCKDB_DOWNLOAD_LIB: "1"
         run: |
           set -euo pipefail
           # Order matters: dependents wait for the registry index to
