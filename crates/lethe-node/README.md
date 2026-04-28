@@ -2,21 +2,21 @@
 
 Node.js bindings to the Rust core of
 [lethe](https://github.com/teimurjan/lethe), a self-improving memory store
-for LLM agents. Built with [napi-rs](https://napi.rs/), distributed as
-prebuilt platform binaries — no Rust toolchain needed at install time.
+for LLM agents. Built with [napi-rs](https://napi.rs/) and distributed as
+prebuilt platform binaries, so no Rust toolchain is needed at install time.
 
 ## Install
 
 ```bash
-npm install lethe
+npm install @lethe-memory/lethe
 # or
-bun add lethe
+bun add @lethe-memory/lethe
 ```
 
 ## Use
 
 ```typescript
-import { MemoryStore } from "lethe";
+import { MemoryStore } from "@lethe-memory/lethe";
 
 const store = await MemoryStore.open("./my_memories");
 await store.add("I prefer window seats on flights");
@@ -31,7 +31,7 @@ for (const h of hits) {
 await store.save();
 ```
 
-`add` / `retrieve` / `save` are async — napi-rs runs them via
+`add` / `retrieve` / `save` are async. napi-rs runs them via
 `tokio::spawn_blocking` so the Node event loop never stalls on the ONNX
 inference or DuckDB I/O.
 
@@ -50,7 +50,7 @@ MemoryStore.open(path, {
 
 ## See also
 
-- [Project landing page](https://github.com/teimurjan/lethe) — architecture, benchmarks, research journey
-- [`lethe-cli`](https://crates.io/crates/lethe-cli) (Homebrew: `lethe`) — the standalone CLI
+- [Project landing page](https://github.com/teimurjan/lethe): architecture, benchmarks, research journey
+- [`lethe-cli`](https://crates.io/crates/lethe-cli) (Homebrew: `lethe`): the standalone CLI
 
 License: MIT.

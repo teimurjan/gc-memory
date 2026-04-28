@@ -6,6 +6,12 @@
   "types": "index.d.ts",
   "license": "MIT",
   "repository": "github:teimurjan/lethe",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "publishConfig": {
     "access": "public"
   },

@@ -28,7 +28,7 @@ store.save()
 ```
 
 The wheel ships the Rust `lethe-core` retrieval pipeline (BM25 + dense
-hybrid, cross-encoder rerank, clustered RIF) — same code path the CLI
+hybrid, cross-encoder rerank, clustered RIF), the same code path the CLI
 uses, exposed via PyO3 with `Python::allow_threads` around all native
 work so multi-threaded Python callers see real parallelism.
 
@@ -49,7 +49,7 @@ MemoryStore(
 
 ## See also
 
-- [Project landing page](https://github.com/teimurjan/lethe) — architecture, benchmarks, research journey
-- [`lethe-cli`](https://crates.io/crates/lethe-cli) (Homebrew: `lethe`) — the standalone CLI
+- [Project landing page](https://github.com/teimurjan/lethe): architecture, benchmarks, research journey
+- [`lethe-cli`](https://crates.io/crates/lethe-cli) (Homebrew: `lethe`): the standalone CLI
 
 License: MIT.
