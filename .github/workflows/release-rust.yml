@@ -1,13 +1,8 @@
 name: release-rust
 
 # Triggered when release-please publishes a GitHub Release. Publishes
-# the four Rust crates to crates.io (in dependency order) and updates
-# the Homebrew formula at `teimurjan/homebrew-lethe`.
-#
-# Multi-platform binaries are built locally via
-# `scripts/release/build.sh` and uploaded to the GitHub Release as
-# tarballs *before* this workflow runs. The workflow downloads them
-# only to compute SHA256s for the formula.
+# the four Rust crates to crates.io in dependency order. The Homebrew
+# tap update lives in `release-homebrew.yml`.
 
 on:
   release:
@@ -68,69 +63,3 @@ jobs:
           publish_if_new lethe-tui
           publish_if_new lethe-cli
           publish_if_new lethe-claude-code
-
-  homebrew:
-    name: update homebrew tap
-    runs-on: ubuntu-latest
-    steps:
-      - name: render formula from release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          ARM_TAR="lethe-macos-arm64.tar.gz"
-          X64_TAR="lethe-macos-x64.tar.gz"
-
-          # Pull whichever macOS tarballs the human uploaded to the release.
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$ARM_TAR" --pattern "$X64_TAR" --dir .
-
-          SHA_ARM=$(shasum -a 256 "$ARM_TAR" | awk '{print $1}')
-          SHA_X64=$(shasum -a 256 "$X64_TAR" | awk '{print $1}')
-
-          mkdir -p Formula
-          cat > Formula/lethe.rb <<EOF
-          class Lethe < Formula
-            desc "Persistent memory store for LLM agents"
-            homepage "https://github.com/teimurjan/lethe"
-            version "${VERSION}"
-            license "MIT"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/teimurjan/lethe/releases/download/${TAG}/${ARM_TAR}"
-                sha256 "${SHA_ARM}"
-              else
-                url "https://github.com/teimurjan/lethe/releases/download/${TAG}/${X64_TAR}"
-                sha256 "${SHA_X64}"
-              end
-            end
-
-            def install
-              bin.install "lethe"
-              bin.install "lethe-claude-code"
-            end
-
-            test do
-              system "#{bin}/lethe", "--version"
-              system "#{bin}/lethe-claude-code", "--version"
-            end
-          end
-          EOF
-      - name: push to tap repo
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/teimurjan/homebrew-lethe.git" tap
-          mkdir -p tap/Formula
-          cp Formula/lethe.rb tap/Formula/lethe.rb
-          cd tap
-          git config user.name  "lethe-release-bot"
-          git config user.email "lethe-release-bot@users.noreply.github.com"
-          git add Formula/lethe.rb
-          git commit -m "lethe ${TAG}"
-          git push
