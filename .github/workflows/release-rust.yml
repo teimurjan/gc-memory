@@ -72,9 +72,6 @@ jobs:
   homebrew:
     name: update homebrew tap
     runs-on: ubuntu-latest
-    # Flip to `if: true` once `teimurjan/homebrew-lethe` exists and
-    # `HOMEBREW_TAP_GITHUB_TOKEN` is set in repo secrets.
-    if: false
     steps:
       - name: render formula from release assets
         env:
