@@ -25,8 +25,7 @@
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "test": "napi build --platform --release && node test/smoke.mjs",
-    "prepublishOnly": "napi prepublish -t npm"
+    "test": "napi build --platform --release && node test/smoke.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
