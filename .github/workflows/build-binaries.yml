@@ -25,7 +25,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   resolve-pr:
@@ -212,10 +212,26 @@ jobs:
           set -euo pipefail
           git config user.name  "lethe-release-bot"
           git config user.email "lethe-release-bot@users.noreply.github.com"
-          git add release_artifacts/
+          # Drop stale wheels (named `lethe_memory-X.Y.Z-…whl`) from
+          # earlier versions so they don't pile up alongside the
+          # current build's wheels.
+          find release_artifacts -maxdepth 1 -name 'lethe_memory-*.whl' \
+            ! -name "lethe_memory-${VERSION}-*.whl" -print -delete || true
+          git add -A release_artifacts/
           if git diff --cached --quiet; then
             echo "no artifact changes to commit"
             exit 0
           fi
           git commit -m "chore(release): v${VERSION} linux+windows artifacts"
           git push origin "$BRANCH"
+      - name: re-trigger release-artifacts-check on the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GITHUB_TOKEN-driven pushes don't fire `pull_request:
+          # synchronize` (anti-loop protection), so the artifact-check
+          # workflow doesn't see what we just pushed. Bouncing the PR
+          # closed/open fires `reopened`, which re-runs the check
+          # against the new tip.
+          gh pr close  "${{ inputs.pr }}" --repo "$GITHUB_REPOSITORY"
+          gh pr reopen "${{ inputs.pr }}" --repo "$GITHUB_REPOSITORY"

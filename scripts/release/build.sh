@@ -144,6 +144,12 @@ if [[ "$BUILD_PYPI" == "true" ]]; then
     echo "  error: maturin not installed (uv pip install maturin)"
     exit 1
   fi
+  # Drop stale wheels from earlier versions so the dir doesn't
+  # accumulate `lethe_memory-0.7.0-*.whl` alongside the new
+  # `lethe_memory-0.8.0-*.whl`.
+  version=$(grep -m1 -E '^version *= *"' "$ROOT_DIR/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')
+  find "$DIST_DIR" -maxdepth 1 -name 'lethe_memory-*.whl' \
+    ! -name "lethe_memory-${version}-*.whl" -print -delete || true
   # `--auditwheel=repair` runs delocate on macOS so libduckdb is
   # bundled into the wheel; without it we'd ship a wheel that links
   # against an absolute path on the build machine.
