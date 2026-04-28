@@ -1,5 +1,23 @@
 name: release-please
 
+# On every push to main, release-please-action either updates the
+# open release PR (manifest bump + CHANGELOG diff) or — if the
+# pushed commit IS the release PR being merged — creates a
+# non-draft GitHub Release and tag (`lethe-vX.Y.Z`).
+#
+# When a release is created, the upload-assets job copies
+# `release_artifacts/` (committed onto the release-please PR
+# branch by `build-binaries.yml` before merge, plus the
+# maintainer's local macOS-arm64 build) to the GitHub Release.
+# This makes the standard `releases/download/<tag>/<file>` URLs
+# work for end users, including the Homebrew formula.
+#
+# Registry workflows (release-pypi, release-npm, release-rust,
+# release-homebrew) trigger on `release: published` separately
+# and read binaries from main's `release_artifacts/` directly,
+# not from these uploaded assets — so they don't race with the
+# upload here.
+
 on:
   push:
     branches: [main]
@@ -12,8 +30,39 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name:        ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  upload-assets:
+    name: upload release_artifacts to GitHub Release
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # release_artifacts/ is LFS-tracked; pull the actual
+          # binaries, not the pointer files.
+          lfs: true
+      - name: upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ ! -d release_artifacts ] || [ -z "$(ls -A release_artifacts 2>/dev/null)" ]; then
+            echo "::error::release_artifacts/ is missing or empty on main; nothing to upload."
+            exit 1
+          fi
+          ls -la release_artifacts/
+          gh release upload "$TAG" release_artifacts/* --clobber

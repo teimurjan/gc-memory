@@ -1,11 +1,14 @@
 name: release-pypi
 
-# Triggered when release-please publishes a GitHub Release.
-# Picks up maturin wheels uploaded to the release as assets and
-# publishes them to PyPI under `lethe-memory`.
+# Triggered when release-please publishes a GitHub Release. Reads
+# maturin wheels from main's `release_artifacts/` (LFS-tracked,
+# committed onto the release-please PR branch by
+# `build-binaries.yml` before merge plus the maintainer's local
+# macOS-arm64 wheel) and publishes them to PyPI under
+# `lethe-memory`.
 #
-# Wheels are built locally via `scripts/release/build.sh --pypi` and
-# uploaded to the GitHub Release before this runs.
+# We read from main rather than the GitHub Release assets so we
+# don't race with `release-please.yml`'s upload step.
 
 on:
   release:
@@ -28,17 +31,24 @@ jobs:
       name: pypi
       url: https://pypi.org/p/lethe-memory
     steps:
-      - name: download wheels from release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: true
+      - name: stage wheels for upload
         run: |
           set -euo pipefail
           mkdir -p dist
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "*.whl" --pattern "*.tar.gz" --dir dist || true
-          # Drop non-wheel/sdist tarballs the rust workflow uploads.
-          find dist -type f ! -name "*.whl" ! -name "lethe_memory-*.tar.gz" -delete
+          # Match wheels only — release_artifacts/ also holds tarballs
+          # / .node files for other registries.
+          shopt -s nullglob
+          wheels=(release_artifacts/*.whl)
+          if [ ${#wheels[@]} -eq 0 ]; then
+            echo "::error::No wheels under release_artifacts/ on main."
+            ls -la release_artifacts/ || true
+            exit 1
+          fi
+          cp "${wheels[@]}" dist/
           ls -la dist
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:

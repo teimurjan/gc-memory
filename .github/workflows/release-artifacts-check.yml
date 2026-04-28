@@ -1,0 +1,92 @@
+name: release-artifacts-check
+
+# Status check on release-please PRs that goes green only when
+# `release_artifacts/` contains every binary expected for the
+# version recorded in `.release-please-manifest.json`. Acts as a
+# merge gate: a release-please PR can only land once
+# `build-binaries.yml` has run and the maintainer has committed
+# their local macOS-arm64 build to the PR branch.
+#
+# Non-release-please PRs short-circuit to success.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: verify release_artifacts/ for current version
+    runs-on: ubuntu-latest
+    steps:
+      - name: short-circuit for non-release-please PRs
+        id: gate
+        run: |
+          if [[ "${{ github.head_ref }}" == release-please--* ]]; then
+            echo "release_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_pr=false" >> "$GITHUB_OUTPUT"
+            echo "Not a release-please PR; check is a no-op."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.release_pr == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # We only need the manifest + the file *names* under
+          # release_artifacts/, not the LFS payloads. Skip LFS smudge
+          # to keep the check fast.
+          lfs: false
+      - name: verify all expected files present
+        if: steps.gate.outputs.release_pr == 'true'
+        run: |
+          set -euo pipefail
+          VER=$(jq -r '.["."]' .release-please-manifest.json)
+          echo "Target version: $VER"
+
+          missing=()
+          want_loose() {
+            local f="release_artifacts/$1"
+            if [ ! -f "$f" ]; then missing+=("$f"); fi
+          }
+          want_glob() {
+            local pat="$1"
+            local count
+            count=$(find release_artifacts -maxdepth 1 -name "$pat" 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$count" = "0" ]; then missing+=("release_artifacts/$pat (no match)"); fi
+          }
+
+          # 4 CI-built platforms × { tarball/zip, .node } = 8 files.
+          # macOS-arm64 is built locally and committed by the maintainer.
+          want_loose "lethe-linux-x64.tar.gz"
+          want_loose "lethe-linux-x64.node"
+          want_loose "lethe-linux-arm64.tar.gz"
+          want_loose "lethe-linux-arm64.node"
+          want_loose "lethe-windows-x64.zip"
+          want_loose "lethe-windows-x64.node"
+          want_loose "lethe-windows-arm64.zip"
+          want_loose "lethe-windows-arm64.node"
+          want_loose "lethe-macos-arm64.tar.gz"
+          want_loose "lethe-macos-arm64.node"
+
+          # Wheels — maturin produces filenames like
+          # `lethe_memory-${VER}-cp39-abi3-<plat>.whl`. We require the
+          # macOS + Windows wheels (Linux manylinux wheels have not
+          # historically made it into release_artifacts/; loosen this
+          # rule when the manylinux pipeline starts producing them).
+          want_glob "lethe_memory-${VER}-*-macosx*arm64.whl"
+          want_glob "lethe_memory-${VER}-*-win_amd64.whl"
+          want_glob "lethe_memory-${VER}-*-win_arm64.whl"
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing release artifacts for v${VER}:"
+            for f in "${missing[@]}"; do echo "  - $f"; done
+            echo
+            echo "Run \`gh workflow run build-binaries.yml -f pr=${{ github.event.pull_request.number }}\`"
+            echo "and (for macOS-arm64) push your local \`scripts/release/build.sh --napi --pypi\` output."
+            exit 1
+          fi
+          echo "All expected v${VER} artifacts present."
+          ls -la release_artifacts/

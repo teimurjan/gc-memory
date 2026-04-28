@@ -1,18 +1,18 @@
 name: release-npm
 
-# Triggered when release.yml flips a `lethe-vX.Y.Z` GitHub Release
-# from draft to published. The release at that point holds the
-# per-platform binary tarballs (with libduckdb bundled inside) and
-# the `.node` files. We:
+# Triggered when release-please publishes a GitHub Release. Reads
+# per-platform binaries from main's `release_artifacts/` (LFS) and:
 #
-#   1. Download the `.node` and tarball/zip for each napi triple.
-#   2. Extract libduckdb from each tarball next to its matching
-#      `.node` inside `npm/<triple>/`.
-#   3. Patch each per-platform `package.json` so its `files` field
+#   1. Stages each `.node` and the libduckdb extracted from each
+#      tarball/zip into the per-platform `npm/<triple>/` directory.
+#   2. Patches each per-platform `package.json` so its `files` field
 #      lists libduckdb alongside the `.node`.
-#   4. Run `napi prepublish` (auto-publishes per-platform packages).
-#   5. Publish the root meta package with `optionalDependencies`
+#   3. Publishes per-platform packages, idempotent against re-runs.
+#   4. Publishes the root meta package with `optionalDependencies`
 #      pointing at each per-platform package.
+#
+# We read from main rather than the GitHub Release assets so we
+# don't race with `release-please.yml`'s upload step.
 #
 # `.node` files at link time have rpath `@loader_path` / `$ORIGIN`
 # (set by `crates/lethe-node/build.rs`) so the runtime loader
@@ -39,6 +39,9 @@ jobs:
         working-directory: crates/lethe-node
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -47,8 +50,10 @@ jobs:
 
       - name: stage per-platform npm dirs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          # `release_artifacts/` lives at the repo root, but the per-
+          # platform staging happens under `crates/lethe-node/npm/`.
+          REPO_ROOT: ${{ github.workspace }}
         run: |
           set -euo pipefail
 
@@ -93,27 +98,24 @@ jobs:
             inner="${dir}/@lethe-memory"
             mkdir -p "$inner"
 
-            # Pull `.node` into the scoped subdir.
-            if ! gh release download "$TAG" \
-                  --repo "$GITHUB_REPOSITORY" \
-                  --pattern "lethe-${f}.node" \
-                  --dir "$inner" 2>/dev/null; then
-              echo "no .node for $f; skipping $triple"
+            # Copy `.node` into the scoped subdir from main's
+            # release_artifacts/.
+            node_src="${REPO_ROOT}/release_artifacts/lethe-${f}.node"
+            if [ ! -f "$node_src" ]; then
+              echo "no .node for $f at $node_src; skipping $triple"
               rm -rf "$dir"
               continue
             fi
-            mv "$inner/lethe-${f}.node" "$inner/lethe.${triple}.node"
+            cp "$node_src" "$inner/lethe.${triple}.node"
 
-            # Pull the tarball/zip into staging and extract libduckdb.
+            # Stage the tarball/zip and extract libduckdb.
             rm -rf "_staging/${f}"
             mkdir -p "_staging/${f}"
             if [ "$triple" = win32-x64-msvc ] || [ "$triple" = win32-arm64-msvc ]; then
-              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-                --pattern "lethe-${f}.zip" --dir "_staging/${f}"
+              cp "${REPO_ROOT}/release_artifacts/lethe-${f}.zip" "_staging/${f}/"
               (cd "_staging/${f}" && unzip -q "lethe-${f}.zip")
             else
-              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-                --pattern "lethe-${f}.tar.gz" --dir "_staging/${f}"
+              cp "${REPO_ROOT}/release_artifacts/lethe-${f}.tar.gz" "_staging/${f}/"
               tar -xzf "_staging/${f}/lethe-${f}.tar.gz" -C "_staging/${f}"
             fi
             cp "_staging/${f}/lethe-${f}/${lib}" "$inner/${lib}"

@@ -1,8 +1,15 @@
 name: release-homebrew
 
 # Triggered when release-please publishes a GitHub Release. Renders
-# the Homebrew formula from the macOS tarballs attached to the release
-# and pushes it to the `teimurjan/homebrew-lethe` tap repo.
+# the Homebrew formula by hashing the macOS tarball read from main's
+# `release_artifacts/` (LFS) and pushes the formula to the
+# `teimurjan/homebrew-lethe` tap repo.
+#
+# We read from main rather than the GitHub Release assets so we
+# don't race with `release-please.yml`'s upload step. The formula
+# itself still points at `releases/download/<tag>/<file>` because
+# that's the URL Homebrew runs against on user machines — the
+# upload-assets job in release-please.yml ensures it resolves.
 
 on:
   release:
@@ -21,19 +28,24 @@ jobs:
     name: update homebrew tap
     runs-on: ubuntu-latest
     steps:
-      - name: render formula from release assets
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: true
+      - name: render formula from release_artifacts
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
+          VERSION="${TAG#lethe-v}"
           ARM_TAR="lethe-macos-arm64.tar.gz"
 
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$ARM_TAR" --dir .
-
-          SHA_ARM=$(shasum -a 256 "$ARM_TAR" | awk '{print $1}')
+          if [ ! -f "release_artifacts/${ARM_TAR}" ]; then
+            echo "::error::release_artifacts/${ARM_TAR} missing on main."
+            ls -la release_artifacts/ || true
+            exit 1
+          fi
+          SHA_ARM=$(sha256sum "release_artifacts/${ARM_TAR}" | awk '{print $1}')
 
           mkdir -p Formula
           cat > Formula/lethe.rb <<EOF

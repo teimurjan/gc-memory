@@ -1,58 +1,65 @@
-name: release
+name: build-binaries
 
-# Single end-to-end release pipeline.
+# Manually triggered against an open release-please PR. Builds the
+# Linux + Windows matrix and commits all artifacts to the PR branch
+# under `release_artifacts/` (Git LFS). macOS-arm64 is not in the
+# matrix — the maintainer builds it locally via
+# `scripts/release/build.sh --napi --pypi` and pushes those files
+# to the PR branch separately. The PR has a `release-artifacts-check`
+# status that turns green only once every expected file is present.
 #
-# Triggered when release-please pushes a `lethe-vX.Y.Z` tag (the root
-# package's component-prefixed tag — release-please prefixes tags with
-# the package component because the manifest declares two packages).
-# Also runs on manual dispatch with the same tag. Runs three stages:
-#
-#   1. build       — matrix-build Linux + Windows tarballs + napi .nodes
-#                    + maturin wheels on native runners. macOS-arm64
-#                    is NOT in the matrix — the maintainer builds it
-#                    locally via `scripts/release/build.sh --napi --pypi`
-#                    and commits `release_artifacts/lethe-macos-arm64*`
-#                    before merging the release-please PR. ort's prebuilt
-#                    ONNX Runtime links cleanly only on native, so we
-#                    don't cross-compile anything.
-#   2. commit      — append the matrix's Linux/Windows artifacts to
-#                    `release_artifacts/` next to the macOS files you
-#                    committed locally. Pushes a
-#                    `chore(release): vX.Y.Z linux+windows artifacts
-#                    [skip ci]` commit. The directory holds only the
-#                    latest release's binaries, tracked via Git LFS;
-#                    older versions stay accessible via the GitHub
-#                    Releases page.
-#   3. release     — upload everything in `release_artifacts/` (your
-#                    local macOS plus CI's Linux/Windows) to the
-#                    GitHub Release release-please created as a draft,
-#                    then flip the draft flag. Only at that moment does
-#                    `release: published` fire, fanning out to
-#                    `release-rust.yml`, `release-pypi.yml`,
-#                    `release-npm.yml`.
+# After the PR merges, `release-please.yml` creates a non-draft
+# GitHub Release + tag on main, uploads `release_artifacts/` as
+# release assets (so end-user `brew install` / GitHub-Release
+# downloads work), and fires `release: published`. The four
+# registry workflows (release-pypi/npm/rust/homebrew) react to that
+# and read binaries from main's `release_artifacts/` directly,
+# rather than depending on the GitHub Release assets.
 
 on:
-  push:
-    tags:
-      - 'lethe-v*.*.*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag (e.g. lethe-v0.7.0)"
+      pr:
+        description: "Release-please PR number (e.g. 24)"
         required: true
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
+  resolve-pr:
+    name: resolve PR head ref
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.lookup.outputs.branch }}
+      version: ${{ steps.lookup.outputs.version }}
+    steps:
+      - id: lookup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH=$(gh pr view "${{ inputs.pr }}" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)
+          [ -n "$BRANCH" ]
+          # Read the manifest at the PR head to know which version
+          # this build is for. Used in the artifact-commit message.
+          VERSION=$(gh api "repos/$GITHUB_REPOSITORY/contents/.release-please-manifest.json?ref=$BRANCH" \
+                      --jq '.content' | base64 -d | jq -r '.["."]')
+          [ -n "$VERSION" ]
+          echo "branch=$BRANCH"   >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building for branch=$BRANCH version=$VERSION"
+
   build:
     name: build ${{ matrix.friendly }}
+    needs: resolve-pr
     runs-on: ${{ matrix.os }}
-    # libduckdb-sys' build.rs downloads the official prebuilt libduckdb
-    # for the target triple instead of compiling DuckDB's C++ from
-    # source. This drops the cold build from ~16 min to ~30 s and
-    # avoids the manylinux legacy CXX ABI rejection that blocks
-    # bundled builds inside maturin's container.
+    # libduckdb-sys' build.rs downloads the official prebuilt
+    # libduckdb for the target triple instead of compiling DuckDB's
+    # C++ from source. This drops the cold build from ~16 min to
+    # ~30 s and avoids the manylinux legacy CXX ABI rejection that
+    # blocks bundled builds inside maturin's container.
     env:
       DUCKDB_DOWNLOAD_LIB: "1"
     strategy:
@@ -65,29 +72,43 @@ jobs:
           - { os: windows-11-arm,   target: aarch64-pc-windows-msvc,     friendly: windows-arm64,  rustflags: "" }
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-pr.outputs.branch }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          # Salt bumped after libduckdb-sys cache pollution: the
-          # action's `cleanTargetDir` recursively prunes anything
-          # under `target/` whose dirname isn't `build`/`.fingerprint`/
-          # `deps`, which wipes `target/duckdb-download/<triple>/<ver>/`
-          # contents while leaving cargo's libduckdb-sys build
-          # fingerprint intact. On restore, build.rs short-circuits
-          # (no re-extract) and link.exe fails to find `duckdb.lib`.
-          key: ${{ matrix.target }}-libduckdb-v2
-      - name: keep libduckdb-sys download out of rust-cache cleanup
+          # rust-cache's pre-save `cleanTargetDir` walks `target/`,
+          # treats any subdir without `CACHEDIR.TAG`/`Cargo.toml` as
+          # a cargo profile dir, and via `cleanProfileTarget` removes
+          # everything in it except `build`/`.fingerprint`/`deps`/
+          # `examples`/`incremental`. That wipes
+          # `target/duckdb-download/<triple>/<ver>/duckdb.{lib,so,dylib}`
+          # while preserving cargo's libduckdb-sys fingerprint under
+          # `target/<triple>/release/build/`. On restore, build.rs
+          # short-circuits ("already built") and the linker fails with
+          # LNK1181 / `cannot find -lduckdb`. CACHEDIR.TAG anywhere in
+          # the tree doesn't help — the cleanup recurses and still
+          # deletes loose files at every level. We accept it and
+          # self-heal in the next step.
+          key: ${{ matrix.target }}-libduckdb-v3
+      - name: re-download libduckdb if rust-cache stripped it post-restore
         shell: bash
         run: |
-          # `CACHEDIR.TAG` makes Swatinem/rust-cache skip this dir
-          # during its pre-save cleanup, preserving the extracted
-          # libduckdb files (.lib/.dll/.dylib/.so + headers) verbatim
-          # in the cache. See cleanup.ts: dirs containing CACHEDIR.TAG
-          # are not treated as cargo profile dirs.
-          mkdir -p target/duckdb-download
-          printf 'Signature: 8a477f597d28d172\n' > target/duckdb-download/CACHEDIR.TAG
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            *-pc-windows-*) lib="duckdb.lib" ;;
+            *-apple-darwin) lib="libduckdb.dylib" ;;
+            *)              lib="libduckdb.so" ;;
+          esac
+          dir="target/duckdb-download/${{ matrix.target }}"
+          if [ -d "$dir" ] && find "$dir" -name "$lib" -print -quit | grep -q .; then
+            echo "$lib present under $dir; libduckdb-sys cache is intact"
+          else
+            echo "$lib missing under $dir; clearing libduckdb-sys fingerprint to force build.rs re-run"
+            rm -rf "target/${{ matrix.target }}/release/build/libduckdb-sys-"*
+          fi
       - name: build cli + claude-code + napi
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
@@ -164,26 +185,19 @@ jobs:
           name: lethe-${{ matrix.friendly }}
           path: out/
           # Matrix artifacts are intermediate hand-offs to the
-          # `commit`/`release` jobs in this same workflow run — they
-          # have no value past the run finishing. Default retention
-          # is 90 days; trim to 7 to keep total artifact storage in
-          # check across releases.
+          # `commit` job in this same workflow run — they have no
+          # value past the run finishing. Default retention is 90
+          # days; trim to 7 to keep total artifact storage in check.
           retention-days: 7
 
   commit:
-    name: commit artifacts to repo
-    needs: build
+    name: commit artifacts to release-please PR
+    needs: [resolve-pr, build]
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - id: tag
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.resolve-pr.outputs.branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: true
       - uses: actions/download-artifact@v4
@@ -191,6 +205,9 @@ jobs:
           path: release_artifacts
           merge-multiple: true
       - name: commit and push
+        env:
+          BRANCH: ${{ needs.resolve-pr.outputs.branch }}
+          VERSION: ${{ needs.resolve-pr.outputs.version }}
         run: |
           set -euo pipefail
           git config user.name  "lethe-release-bot"
@@ -200,36 +217,5 @@ jobs:
             echo "no artifact changes to commit"
             exit 0
           fi
-          git commit -m "chore(release): ${{ steps.tag.outputs.tag }} linux+windows artifacts [skip ci]"
-          git push origin main
-
-  release:
-    name: create GitHub Release
-    needs: commit
-    runs-on: ubuntu-latest
-    steps:
-      # Pull the freshly-committed `release_artifacts/` from main
-      # (which now contains both your local macOS files and the
-      # matrix's Linux/Windows files). LFS resolves the blobs.
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          lfs: true
-      - name: upload assets and publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.commit.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # release-please created the release as a draft (see
-          # `"draft": true` in release-please-config.json). Upload
-          # everything in `release_artifacts/`, then flip the
-          # draft flag — only at that moment does GitHub fire
-          # `release: published`, which is the trigger the
-          # registry-push workflows wait for. This avoids the race
-          # where they'd otherwise run before any assets exist.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --generate-notes
-          fi
-          gh release upload "$TAG" release_artifacts/* --clobber
-          gh release edit   "$TAG" --draft=false
+          git commit -m "chore(release): v${VERSION} linux+windows artifacts"
+          git push origin "$BRANCH"
