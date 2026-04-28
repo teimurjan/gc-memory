@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/teimurjan/lethe/compare/lethe-v0.8.0...lethe-v0.9.0) (2026-04-28)
+
+
+### Features
+
+* **retrieve:** Batched union rerank, ~4x faster `search --all` ([096c64f](https://github.com/teimurjan/lethe/commit/096c64faa91b2f4526dabbbc7972e9dcf5f350ac))
+
 ## [0.8.0](https://github.com/teimurjan/lethe/compare/lethe-v0.7.1...lethe-v0.8.0) (2026-04-28)
 
 
