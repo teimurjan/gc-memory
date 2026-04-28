@@ -48,6 +48,13 @@ jobs:
   build:
     name: build ${{ matrix.friendly }}
     runs-on: ${{ matrix.os }}
+    # libduckdb-sys' build.rs downloads the official prebuilt libduckdb
+    # for the target triple instead of compiling DuckDB's C++ from
+    # source. This drops the cold build from ~16 min to ~30 s and
+    # avoids the manylinux legacy CXX ABI rejection that blocks
+    # bundled builds inside maturin's container.
+    env:
+      DUCKDB_DOWNLOAD_LIB: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -74,13 +81,22 @@ jobs:
         run: |
           set -euo pipefail
           STAGE="lethe-${{ matrix.friendly }}"
+          DEPS="target/${{ matrix.target }}/release/deps"
           mkdir -p "$STAGE"
+          # Bin crates' build.rs sets rpath=@loader_path/$ORIGIN, so
+          # libduckdb only resolves when shipped next to the binary.
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp "target/${{ matrix.target }}/release/lethe.exe"             "$STAGE/"
             cp "target/${{ matrix.target }}/release/lethe-claude-code.exe" "$STAGE/"
+            cp "$DEPS/duckdb.dll"                                          "$STAGE/"
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            cp "target/${{ matrix.target }}/release/lethe"             "$STAGE/"
+            cp "target/${{ matrix.target }}/release/lethe-claude-code" "$STAGE/"
+            cp "$DEPS/libduckdb.so"                                    "$STAGE/"
           else
             cp "target/${{ matrix.target }}/release/lethe"             "$STAGE/"
             cp "target/${{ matrix.target }}/release/lethe-claude-code" "$STAGE/"
+            cp "$DEPS/libduckdb.dylib"                                 "$STAGE/"
           fi
           cp README.md LICENSE "$STAGE/" 2>/dev/null || true
           if [ "${{ runner.os }}" = "Windows" ]; then

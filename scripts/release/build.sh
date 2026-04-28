@@ -87,6 +87,17 @@ done
 
 mkdir -p "$DIST_DIR"
 
+# Use upstream prebuilt libduckdb instead of compiling DuckDB's C++
+# from source — drops the cold build from ~16 min to ~30 s and avoids
+# the manylinux legacy CXX ABI rejection. The libduckdb-sys build.rs
+# downloads `libduckdb-<triple>.zip` from the official DuckDB GitHub
+# release that matches the crate version, extracts it under
+# `target/duckdb-download/...`, and copies the dylib to
+# `target/<triple>/release/deps/`. The bin crates' build.rs sets
+# `LC_RPATH=@loader_path` so the dylib resolves when shipped next to
+# the binary in the tarball.
+export DUCKDB_DOWNLOAD_LIB=1
+
 rustup target add "$TARGET" >/dev/null 2>&1 || true
 
 # Build each binary, then pack them into the single tarball that
@@ -108,6 +119,9 @@ for entry in "${RUST_BINS[@]}"; do
   cp "$TARGET_DIR/$TARGET/release/$bin" "$stage_dir/$bin"
   chmod +x "$stage_dir/$bin"
 done
+# Ship libduckdb next to the binaries — they're linked with
+# `@loader_path` rpath, so it resolves via the same directory.
+cp "$TARGET_DIR/$TARGET/release/deps/libduckdb.dylib" "$stage_dir/libduckdb.dylib"
 cp "$ROOT_DIR/README.md" "$ROOT_DIR/LICENSE" "$stage_dir/" 2>/dev/null || true
 (cd "$stage_root" && tar -czf "$DIST_DIR/lethe-${FNAME}.tar.gz" "lethe-${FNAME}")
 rm -rf "$stage_root"
