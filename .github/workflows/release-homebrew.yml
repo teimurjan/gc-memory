@@ -30,12 +30,10 @@ jobs:
           VERSION="${TAG#v}"
           ARM_TAR="lethe-macos-arm64.tar.gz"
 
-          # Pull whichever macOS tarballs the human uploaded to the release.
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$ARM_TAR" --pattern "$X64_TAR" --dir .
+            --pattern "$ARM_TAR" --dir .
 
           SHA_ARM=$(shasum -a 256 "$ARM_TAR" | awk '{print $1}')
-          SHA_X64=$(shasum -a 256 "$X64_TAR" | awk '{print $1}')
 
           mkdir -p Formula
           cat > Formula/lethe.rb <<EOF
@@ -45,15 +43,11 @@ jobs:
             version "${VERSION}"
             license "MIT"
 
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/teimurjan/lethe/releases/download/${TAG}/${ARM_TAR}"
-                sha256 "${SHA_ARM}"
-              else
-                url "https://github.com/teimurjan/lethe/releases/download/${TAG}/${X64_TAR}"
-                sha256 "${SHA_X64}"
-              end
-            end
+            depends_on arch: :arm64
+            depends_on :macos
+
+            url "https://github.com/teimurjan/lethe/releases/download/${TAG}/${ARM_TAR}"
+            sha256 "${SHA_ARM}"
 
             def install
               bin.install "lethe"
