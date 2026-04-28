@@ -3,7 +3,7 @@
   "draft": true,
   "packages": {
     ".": {
-      "release-type": "rust",
+      "release-type": "simple",
       "package-name": "lethe",
       "component": "lethe",
       "changelog-path": "CHANGELOG.md",
@@ -11,6 +11,11 @@
         "legacy/lethe/__init__.py",
         "legacy/pyproject.toml",
         "crates/lethe-py/pyproject.toml",
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
         {
           "type": "json",
           "path": ".claude-plugin/marketplace.json",
