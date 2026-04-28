@@ -620,6 +620,67 @@ impl MemoryStore {
         f(&g)
     }
 
+    /// Read-only retrieve used by `UnionStore` cross-project gather.
+    ///
+    /// Returns top-`k` hits ranked by hybrid (BM25 + dense) RRF score
+    /// with the suppression penalty applied. Skips cross-encoder
+    /// rerank, the adaptive deep pass, RIF state mutation, and tier
+    /// transitions — the union path runs a single batched rerank over
+    /// the merged pool, and `--all` never calls `save()` so per-project
+    /// state mutation would be discarded anyway.
+    ///
+    /// Takes a precomputed `query_emb` so the caller can amortize the
+    /// bi-encoder forward across all projects.
+    pub fn retrieve_shallow(
+        &self,
+        query_emb: ArrayView1<'_, f32>,
+        query: &str,
+        k: usize,
+    ) -> Result<Vec<Hit>, crate::Error> {
+        let cfg = self.config.clone();
+        let inner = self.inner.lock().unwrap();
+        if inner.entries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Reuse existing cluster centroids if present; do not update
+        // the query buffer or build new clusters here (that's a
+        // mutation reserved for the owning project's full `retrieve`).
+        let suppression: HashMap<String, f32> = if let (Some(state), Some(centroids)) = (
+            inner.cluster_state.as_ref(),
+            inner.cluster_centroids.as_ref(),
+        ) {
+            let cid = assign_cluster(query_emb, centroids.view()) as u32;
+            state.cluster_scores(cid)
+        } else {
+            let mut sup = HashMap::with_capacity(inner.entries.len());
+            for (eid, entry) in &inner.entries {
+                sup.insert(eid.clone(), entry.suppression);
+            }
+            sup
+        };
+
+        let raw = hybrid_scored(&inner, query_emb, query, k);
+        let raw_filtered: Vec<(String, f32)> = raw
+            .into_iter()
+            .filter(|(eid, _)| inner.entries.contains_key(eid))
+            .collect();
+        let adjusted = apply_suppression_penalty(&raw_filtered, &suppression, cfg.rif.alpha);
+
+        let hits: Vec<Hit> = adjusted
+            .into_iter()
+            .take(k)
+            .filter_map(|(eid, score)| {
+                inner.entries.get(&eid).map(|e| Hit {
+                    id: eid,
+                    content: e.content.clone(),
+                    score,
+                })
+            })
+            .collect();
+        Ok(hits)
+    }
+
     fn rerank_candidates(
         &self,
         inner: &Inner,

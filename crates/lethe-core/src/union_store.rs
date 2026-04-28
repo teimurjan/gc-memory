@@ -25,6 +25,16 @@ use crate::encoders::{BiEncoder, CrossEncoder};
 use crate::memory_store::{Hit, MemoryStore, StoreConfig};
 use crate::registry::ProjectEntry;
 
+/// Per-project candidates pulled before the global rerank. Larger
+/// values trade rerank batch size for recall; 30 matches the default
+/// single-project `k_shallow` so behavior is comparable.
+const UNION_K_GATHER: usize = 30;
+/// Cap on the merged pool that gets cross-encoder reranked. The whole
+/// pool goes through one batched ONNX forward, so this is the dominant
+/// latency knob — keep it small enough to fit in one Mutex acquisition
+/// of the cross-encoder session.
+const UNION_K_RERANK: usize = 60;
+
 /// One ranked, project-tagged hit.
 #[derive(Debug, Clone)]
 pub struct UnionHit {
@@ -38,6 +48,8 @@ pub struct UnionHit {
 #[derive(Debug)]
 pub struct UnionStore {
     projects: Vec<UnionProject>,
+    bi_encoder: Option<Arc<BiEncoder>>,
+    cross_encoder: Option<Arc<CrossEncoder>>,
 }
 
 #[derive(Debug)]
@@ -79,7 +91,11 @@ impl UnionStore {
                 }
             })
             .collect();
-        Self { projects: handles }
+        Self {
+            projects: handles,
+            bi_encoder,
+            cross_encoder,
+        }
     }
 
     /// `(slug, root, entry_count)` for diagnostics.
@@ -90,25 +106,43 @@ impl UnionStore {
             .collect()
     }
 
-    /// Cross-project retrieve. Per-project top-`k` results are
-    /// concatenated then re-sorted by their rerank scores; the
-    /// `k` highest overall are returned.
+    /// Cross-project retrieve in two phases:
     ///
-    /// Per-project pipelines run in parallel via rayon — the heavy
-    /// cost (BM25 + dense + cross-encoder rerank) is independent
-    /// across projects. The bi-encoder query embedding is computed
-    /// once per project but the duplicated work (~5 ms each) is
-    /// dwarfed by the parallel speedup on multi-core hosts.
+    /// **Phase A** (parallel): each project runs `retrieve_shallow` —
+    /// hybrid BM25 + dense + suppression penalty, no rerank. The
+    /// bi-encoder query embedding is computed once globally and shared
+    /// across projects.
+    ///
+    /// **Phase B** (single batched call): the per-project candidates
+    /// are merged, capped to `UNION_K_RERANK` by gather score, then
+    /// reranked through the cross-encoder in **one** ONNX forward.
+    ///
+    /// This avoids the trap that the per-project pipeline used to fall
+    /// into: every parallel rayon task serializing through the
+    /// cross-encoder's `Mutex<Session>`, multiplying rerank work by
+    /// project count for no quality benefit.
     pub fn retrieve(&self, query: &str, k: usize) -> Result<Vec<UnionHit>, crate::Error> {
-        if self.projects.is_empty() {
+        if self.projects.is_empty() || k == 0 {
             return Ok(Vec::new());
         }
-        let mut all: Vec<UnionHit> = self
+
+        let bi = self
+            .bi_encoder
+            .as_ref()
+            .ok_or(crate::Error::NotInitialized(
+                "bi_encoder required for union retrieve",
+            ))?;
+        let query_emb = bi.encode(query)?;
+
+        // Phase A — parallel shallow gather.
+        let gathered: Vec<UnionHit> = self
             .projects
             .par_iter()
             .map(|proj| -> Result<Vec<UnionHit>, crate::Error> {
-                let per_project: Vec<Hit> = proj.store.retrieve(query, k)?;
-                Ok(per_project
+                let hits: Vec<Hit> =
+                    proj.store
+                        .retrieve_shallow(query_emb.view(), query, UNION_K_GATHER)?;
+                Ok(hits
                     .into_iter()
                     .map(|h| UnionHit {
                         project_slug: proj.entry.slug.clone(),
@@ -123,15 +157,45 @@ impl UnionStore {
             .into_iter()
             .flatten()
             .collect();
-        all.sort_by(|a, b| {
+
+        if gathered.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Cap merged pool to UNION_K_RERANK before the single rerank
+        // call. Sort by gather score so we keep the strongest
+        // candidates regardless of project.
+        let mut pool = gathered;
+        pool.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.project_slug.cmp(&b.project_slug))
                 .then_with(|| a.id.cmp(&b.id))
         });
-        all.truncate(k);
-        Ok(all)
+        pool.truncate(UNION_K_RERANK);
+
+        // Phase B — one batched cross-encoder rerank on the merged
+        // pool. If no cross-encoder is wired (test path), keep gather
+        // scores as-is.
+        if let Some(xenc) = self.cross_encoder.as_ref() {
+            let pairs: Vec<(&str, &str)> =
+                pool.iter().map(|h| (query, h.content.as_str())).collect();
+            let scores = xenc.predict(&pairs)?;
+            for (hit, score) in pool.iter_mut().zip(scores) {
+                hit.score = score;
+            }
+            pool.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.project_slug.cmp(&b.project_slug))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+        }
+
+        pool.truncate(k);
+        Ok(pool)
     }
 }
 
