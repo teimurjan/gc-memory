@@ -1,12 +1,18 @@
 name: build-binaries
 
-# Manually triggered against an open release-please PR. Builds the
-# Linux + Windows matrix and commits all artifacts to the PR branch
-# under `release_artifacts/` (Git LFS). macOS-arm64 is not in the
-# matrix — the maintainer builds it locally via
-# `scripts/release/build.sh --napi --pypi` and pushes those files
-# to the PR branch separately. The PR has a `release-artifacts-check`
-# status that turns green only once every expected file is present.
+# Triggered by a `/build` comment from a maintainer on the open
+# release-please PR (or manually via workflow_dispatch with a PR
+# number). Builds the Linux + Windows matrix and commits all
+# artifacts to the PR branch under `release_artifacts/` (Git LFS).
+# macOS-arm64 is not in the matrix — the maintainer builds it
+# locally via `scripts/release/build.sh --napi --pypi` and pushes
+# those files to the PR branch separately. The PR has a
+# `release-artifacts-check` status that turns green only once every
+# expected file is present.
+#
+# The artifact commit is pushed under RELEASE_PAT so it fires
+# `pull_request: synchronize` naturally and the artifact-check
+# workflow re-runs without a close/reopen bounce.
 #
 # After the PR merges, `release-please.yml` creates a non-draft
 # GitHub Release + tag on main, uploads `release_artifacts/` as
@@ -22,34 +28,72 @@ on:
       pr:
         description: "Release-please PR number (e.g. 24)"
         required: true
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
-  resolve-pr:
-    name: resolve PR head ref
+  dispatch:
+    name: validate /build comment
+    # Run only on PR-comment events that look like `/build` from a
+    # maintainer. workflow_dispatch skips this job entirely and goes
+    # straight to resolve-pr with `inputs.pr`.
+    if: >-
+      github.event_name == 'issue_comment'
+      && github.event.issue.pull_request != null
+      && startsWith(github.event.comment.body, '/build')
+      && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     outputs:
+      pr: ${{ steps.set.outputs.pr }}
+    steps:
+      - name: react to comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content=eyes
+      - id: set
+        run: echo "pr=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+
+  resolve-pr:
+    name: resolve PR head ref
+    needs: [dispatch]
+    # `always()` so resolve-pr still runs on workflow_dispatch (where
+    # the dispatch job is skipped). Guard against dispatch failures
+    # so a non-maintainer `/build` doesn't fall through to a build.
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch'
+       || needs.dispatch.result == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      pr: ${{ steps.lookup.outputs.pr }}
       branch: ${{ steps.lookup.outputs.branch }}
       version: ${{ steps.lookup.outputs.version }}
     steps:
       - id: lookup
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || needs.dispatch.outputs.pr }}
         run: |
           set -euo pipefail
-          BRANCH=$(gh pr view "${{ inputs.pr }}" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)
+          BRANCH=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)
           [ -n "$BRANCH" ]
           # Read the manifest at the PR head to know which version
           # this build is for. Used in the artifact-commit message.
           VERSION=$(gh api "repos/$GITHUB_REPOSITORY/contents/.release-please-manifest.json?ref=$BRANCH" \
                       --jq '.content' | base64 -d | jq -r '.["."]')
           [ -n "$VERSION" ]
+          echo "pr=$PR"           >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH"   >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building for branch=$BRANCH version=$VERSION"
+          echo "Building PR=$PR branch=$BRANCH version=$VERSION"
 
   build:
     name: build ${{ matrix.friendly }}
@@ -201,7 +245,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve-pr.outputs.branch }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Push under RELEASE_PAT so the resulting commit fires
+          # `pull_request: synchronize` and re-runs the
+          # release-artifacts-check workflow on its own.
+          token: ${{ secrets.RELEASE_PAT }}
           lfs: true
       - uses: actions/download-artifact@v4
         with:
@@ -227,14 +274,3 @@ jobs:
           fi
           git commit -m "chore(release): v${VERSION} linux+windows artifacts"
           git push origin "$BRANCH"
-      - name: re-trigger release-artifacts-check on the PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # GITHUB_TOKEN-driven pushes don't fire `pull_request:
-          # synchronize` (anti-loop protection), so the artifact-check
-          # workflow doesn't see what we just pushed. Bouncing the PR
-          # closed/open fires `reopened`, which re-runs the check
-          # against the new tip.
-          gh pr close  "${{ inputs.pr }}" --repo "$GITHUB_REPOSITORY"
-          gh pr reopen "${{ inputs.pr }}" --repo "$GITHUB_REPOSITORY"
