@@ -17,6 +17,14 @@ name: release-please
 # and read binaries from main's `release_artifacts/` directly,
 # not from these uploaded assets — so they don't race with the
 # upload here.
+#
+# release-please-action runs under RELEASE_PAT (not GITHUB_TOKEN)
+# so two things actually chain: (1) commits release-please pushes
+# to the release PR fire `pull_request: synchronize` and re-run
+# the artifact-check workflow, and (2) the GitHub Release it
+# publishes fires `release: published`, kicking off the four
+# registry workflows. Both events would be suppressed under
+# GITHUB_TOKEN by GitHub's anti-loop protection.
 
 on:
   push:
@@ -39,6 +47,7 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ secrets.RELEASE_PAT }}
 
   upload-assets:
     name: upload release_artifacts to GitHub Release
