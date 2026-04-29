@@ -47,6 +47,11 @@
         },
         {
           "type": "json",
+          "path": "plugins/codex/.codex-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
           "path": "crates/lethe-node/package.json",
           "jsonpath": "$.version"
         }
