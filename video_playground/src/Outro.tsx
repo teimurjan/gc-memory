@@ -21,23 +21,44 @@ export const Outro: React.FC<Props> = ({frame, durationInFrames, run}) => {
   const alpha = interpolate(
     frame,
     [0, 12, durationInFrames - 10, durationInFrames],
-    [0, 1, 1, 0.85],
+    [0, 1, 1, 0.9],
     {extrapolateLeft: "clamp", extrapolateRight: "clamp"},
   );
 
-  // Hold the framing for a moment before the big number lands, so the
-  // graph's final state gets to breathe.
-  const pctScale = spring({
-    frame: Math.max(0, frame - 30),
+  const {baselineNdcg, lethNdcg, deltaPct} = run.meta.headline!;
+
+  const labelS = spring({
+    frame,
+    fps,
+    config: {damping: 200, stiffness: 200, mass: 0.6},
+    durationInFrames: 18,
+  });
+  const labelO = interpolate(labelS, [0, 1], [0, 1]);
+
+  const numbersS = spring({
+    frame: Math.max(0, frame - 18),
+    fps,
+    config: {damping: 200, stiffness: 200, mass: 0.6},
+    durationInFrames: 22,
+  });
+  const numbersO = interpolate(numbersS, [0, 1], [0, 1]);
+  const numbersTy = interpolate(numbersS, [0, 1], [16, 0]);
+
+  const pctS = spring({
+    frame: Math.max(0, frame - 50),
     fps,
     config: {damping: 14, stiffness: 90},
   });
-  const numberAlpha = interpolate(pctScale, [0, 1], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  const pctO = interpolate(pctS, [0, 1], [0, 1]);
+  const pctScale = 0.8 + pctS * 0.2;
 
-  const {baselineNdcg, lethNdcg, deltaPct, baselineLabel} = run.meta.headline!;
+  const closingS = spring({
+    frame: Math.max(0, frame - 100),
+    fps,
+    config: {damping: 200, stiffness: 200, mass: 0.6},
+    durationInFrames: 18,
+  });
+  const closingO = interpolate(closingS, [0, 1], [0, 1]);
 
   return (
     <AbsoluteFill
@@ -45,33 +66,53 @@ export const Outro: React.FC<Props> = ({frame, durationInFrames, run}) => {
         background: BG,
         color: TEXT,
         fontFamily: FONT_MONO,
-        padding: 60,
         opacity: alpha,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 32,
+        gap: 36,
+        padding: 60,
       }}
     >
       <div
         style={{
-          fontSize: 14,
+          fontSize: 22,
           color: TEXT_DIM,
+          opacity: labelO,
           letterSpacing: 1,
-          textTransform: "uppercase",
         }}
       >
-        LongMemEval S · NDCG@10
+        LongMemEval-S
       </div>
 
       <div
         style={{
           display: "flex",
           alignItems: "baseline",
-          gap: 20,
-          transform: `scale(${0.9 + pctScale * 0.1})`,
-          opacity: numberAlpha,
+          gap: 40,
+          opacity: numbersO,
+          transform: `translateY(${numbersTy}px)`,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        <span style={{fontSize: 72, color: BASELINE, fontWeight: 400}}>
+          {baselineNdcg.toFixed(2)}
+        </span>
+        <span style={{fontSize: 44, color: LETHE}}>→</span>
+        <span style={{fontSize: 96, color: LETHE, fontWeight: 600, letterSpacing: -2}}>
+          {lethNdcg.toFixed(2)}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 18,
+          opacity: pctO,
+          transform: `scale(${pctScale})`,
+          marginTop: 8,
         }}
       >
         <span
@@ -85,57 +126,19 @@ export const Outro: React.FC<Props> = ({frame, durationInFrames, run}) => {
         >
           +{Math.round(deltaPct)}%
         </span>
-        <span style={{fontSize: 24, color: TEXT_DIM}}>NDCG</span>
+        <span style={{fontSize: 28, color: TEXT_DIM}}>NDCG</span>
       </div>
 
       <div
         style={{
-          fontSize: 22,
-          color: TEXT,
-          textAlign: "center",
-        }}
-      >
-        lethe vs{" "}
-        <span style={{color: BASELINE}}>{baselineLabel}</span>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 64,
-          fontFamily: FONT_MONO,
-          fontVariantNumeric: "tabular-nums",
-          marginTop: 6,
-        }}
-      >
-        <Stat label="basic RRF" value={baselineNdcg} color={BASELINE} />
-        <Stat label="lethe" value={lethNdcg} color={LETHE} />
-      </div>
-
-      <div
-        style={{
-          fontSize: 13,
+          fontSize: 26,
           color: TEXT_FAINT,
-          textAlign: "center",
-          maxWidth: 760,
-          lineHeight: 1.5,
-          marginTop: 10,
+          opacity: closingO,
+          marginTop: 14,
         }}
       >
-        hybrid BM25 + dense fusion vs. lethe (BM25 + dense + cross-encoder
-        rerank + clustered RIF). numbers published in CLAUDE.md.
+        no retraining
       </div>
     </AbsoluteFill>
   );
 };
-
-const Stat: React.FC<{label: string; value: number; color: string}> = ({
-  label,
-  value,
-  color,
-}) => (
-  <div style={{display: "flex", flexDirection: "column", gap: 6}}>
-    <span style={{fontSize: 13, color: TEXT_DIM}}>{label}</span>
-    <span style={{fontSize: 28, color}}>{value.toFixed(4)}</span>
-  </div>
-);

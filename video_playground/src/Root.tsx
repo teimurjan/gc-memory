@@ -3,10 +3,9 @@ import {LetheDemo} from "./Composition";
 
 const FPS = 30;
 const INTRO_FRAMES = 60;
-const SCHEMATIC_FRAMES = 330;
-const CURVE_FRAMES = 180;
-const OUTRO_FRAMES = 120;
-const DURATION = INTRO_FRAMES + SCHEMATIC_FRAMES + CURVE_FRAMES + OUTRO_FRAMES;
+const FLOW_FRAMES = 480;
+const OUTRO_FRAMES = 150;
+const DURATION = INTRO_FRAMES + FLOW_FRAMES + OUTRO_FRAMES;
 
 export const Root: React.FC = () => {
   return (

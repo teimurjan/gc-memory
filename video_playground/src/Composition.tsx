@@ -7,16 +7,14 @@ import {
   useCurrentFrame,
 } from "remotion";
 import {Intro} from "./Intro";
-import {LearningCurve} from "./LearningCurve";
 import {Outro} from "./Outro";
-import {RifSchematic} from "./RifSchematic";
+import {PipelineFlow} from "./PipelineFlow";
 import {BG, FONT_MONO, TEXT_DIM} from "./theme";
 import type {RunData} from "./types";
 
 export const INTRO_FRAMES = 60;
-export const SCHEMATIC_FRAMES = 330;
-export const CURVE_FRAMES = 180;
-export const OUTRO_FRAMES = 120;
+export const FLOW_FRAMES = 480;
+export const OUTRO_FRAMES = 150;
 
 export const LetheDemo: React.FC = () => {
   const [run, setRun] = useState<RunData | null>(null);
@@ -47,32 +45,22 @@ export const LetheDemo: React.FC = () => {
     );
   }
 
-  const schematicEnd = INTRO_FRAMES + SCHEMATIC_FRAMES;
-  const curveEnd = schematicEnd + CURVE_FRAMES;
+  const flowEnd = INTRO_FRAMES + FLOW_FRAMES;
 
   if (frame < INTRO_FRAMES) {
     return <Intro frame={frame} durationInFrames={INTRO_FRAMES} />;
   }
-  if (frame < schematicEnd) {
+  if (frame < flowEnd) {
     return (
-      <RifSchematic
+      <PipelineFlow
         frame={frame - INTRO_FRAMES}
-        durationInFrames={SCHEMATIC_FRAMES}
-      />
-    );
-  }
-  if (frame < curveEnd) {
-    return (
-      <LearningCurve
-        frame={frame - schematicEnd}
-        durationInFrames={CURVE_FRAMES}
-        run={run}
+        durationInFrames={FLOW_FRAMES}
       />
     );
   }
   return (
     <Outro
-      frame={frame - curveEnd}
+      frame={frame - flowEnd}
       durationInFrames={OUTRO_FRAMES}
       run={run}
     />
