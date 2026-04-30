@@ -1,5 +1,5 @@
 //! Reciprocal-rank fusion. Direct port of the inline RRF in
-//! `legacy/lethe/vectors.py::search_hybrid_scored`. Constant `k = 60`
+//! `research_playground/lethe_reference/lethe/vectors.py::search_hybrid_scored`. Constant `k = 60`
 //! matches the production rule.
 
 use std::collections::HashMap;

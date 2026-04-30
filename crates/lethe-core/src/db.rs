@@ -1,4 +1,4 @@
-//! DuckDB persistence — port of `legacy/lethe/db.py`. Schema covers
+//! DuckDB persistence — port of `research_playground/lethe_reference/lethe/db.py`. Schema covers
 //! the entry rows + clustered RIF state + canonical embedding storage
 //! (the `entry_embeddings` table). Python-written stores keep their
 //! embeddings in `embeddings.npz` and need a one-shot `lethe migrate`.

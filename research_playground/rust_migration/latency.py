@@ -8,7 +8,7 @@ Measures the practical command-line latency you actually feel:
   - Warm retrieve: subprocess per query, full boot + retrieval. Same
     fixed corpus seeded once via Python, queried by both impls.
 
-Same CLI shape as the other suites. Outputs `migration_benchmarks/results/COMPARE_LATENCY_*.md`.
+Same CLI shape as the other suites. Outputs `research_playground/rust_migration/results/COMPARE_LATENCY_*.md`.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def time_rust_cold(rs_cli: str, n: int = 3) -> list[float]:
 
 
 def seed_python_store(path: Path, n_entries: int) -> None:
-    sys.path.insert(0, str(REPO / "legacy"))
+    sys.path.insert(0, str(REPO / "research_playground" / "lethe_reference"))
     from lethe.encoders import OnnxBiEncoder, OnnxCrossEncoder  # noqa: PLC0415
     from lethe.memory_store import MemoryStore  # noqa: PLC0415
 
@@ -81,7 +81,7 @@ def warm_queries() -> list[str]:
 
 
 def time_python_warm(path: Path) -> tuple[float, float]:
-    sys.path.insert(0, str(REPO / "legacy"))
+    sys.path.insert(0, str(REPO / "research_playground" / "lethe_reference"))
     from lethe.encoders import OnnxBiEncoder, OnnxCrossEncoder  # noqa: PLC0415
     from lethe.memory_store import MemoryStore  # noqa: PLC0415
 

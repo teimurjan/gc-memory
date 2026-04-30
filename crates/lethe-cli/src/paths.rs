@@ -1,4 +1,4 @@
-//! `Paths` helper — port of `legacy/lethe/cli.py::resolve_paths` and
+//! `Paths` helper — port of `research_playground/lethe_reference/lethe/cli.py::resolve_paths` and
 //! `Paths`. Walks up to a git root if `--root` isn't given, falls
 //! back to CWD.
 

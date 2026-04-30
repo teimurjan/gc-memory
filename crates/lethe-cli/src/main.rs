@@ -1,6 +1,6 @@
 //! `lethe` — CLI for the lethe memory store.
 //!
-//! Subcommands match `legacy/lethe/cli.py` byte-for-byte on their JSON
+//! Subcommands match `research_playground/lethe_reference/lethe/cli.py` byte-for-byte on their JSON
 //! outputs; the Claude Code plugin scripts parse stdout, so any drift
 //! breaks them. See the porting plan
 //! (`.claude/plans/functional-herding-boot.md`) for the contract.

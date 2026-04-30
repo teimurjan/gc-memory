@@ -1,11 +1,11 @@
 """LongMemEval quality bench — runs the same five retrieval configs as
-`legacy/benchmarks/run_benchmark.py` against either implementation and
+`research_playground/baseline/run.py` against either implementation and
 writes NDCG@10 / Recall@10.
 
 Usage:
-  uv run python migration_benchmarks/longmemeval.py --impl python   # Python pipeline → JSON
-  uv run python migration_benchmarks/longmemeval.py --impl rust     # Rust pipeline   → JSON
-  uv run python migration_benchmarks/longmemeval.py --compare       # both + markdown report
+  uv run python research_playground/rust_migration/longmemeval.py --impl python   # Python pipeline → JSON
+  uv run python research_playground/rust_migration/longmemeval.py --impl rust     # Rust pipeline   → JSON
+  uv run python research_playground/rust_migration/longmemeval.py --compare       # both + markdown report
 
 Both ``--impl`` paths emit JSON of the shape
 
@@ -73,16 +73,17 @@ CONFIGS = [
 
 
 def run_python() -> dict:
-    """Run the production Python pipeline. Mirrors `legacy/benchmarks/run_benchmark.py`."""
+    """Run the production Python pipeline. Mirrors `research_playground/baseline/run.py`."""
     if not LME_RUST.exists():
-        sys.stderr.write("error: run `uv run python migration_benchmarks/prepare.py` first.\n")
+        sys.stderr.write("error: run `uv run python research_playground/rust_migration/prepare.py` first.\n")
         sys.exit(2)
 
     import faiss  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
     from rank_bm25 import BM25Okapi  # noqa: PLC0415
 
-    sys.path.insert(0, str(REPO / "legacy"))
+    sys.path.insert(0, str(REPO / "research_playground" / "lethe_reference"))
+    sys.path.insert(0, str(REPO / "research_playground"))
     from benchmarks._lib.metrics import ndcg_at_k, recall_at_k  # noqa: PLC0415
     from lethe.encoders import OnnxCrossEncoder  # noqa: PLC0415
     from lethe.vectors import tokenize_bm25  # noqa: PLC0415
@@ -300,7 +301,7 @@ def main(argv: list[str]) -> int:
 
     # --compare: run both, write report. Use tempfiles so nothing leaks
     # into the working tree — only the markdown report under
-    # migration_benchmarks/results/ is persisted.
+    # research_playground/rust_migration/results/ is persisted.
     with tempfile.TemporaryDirectory(prefix="lme-compare-") as td:
         td_path = Path(td)
         sys.stderr.write("[compare] running Python pipeline…\n")

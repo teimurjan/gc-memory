@@ -2,7 +2,7 @@
 //!
 //! See [the porting plan](../../../.claude/plans/functional-herding-boot.md)
 //! for the contract this crate honors against the Python reference at
-//! `legacy/lethe/`.
+//! `research_playground/lethe_reference/lethe/`.
 
 #![deny(rust_2018_idioms)]
 #![warn(clippy::all)]
@@ -13,6 +13,7 @@ pub mod dedup;
 pub mod encoders;
 pub mod entry;
 pub mod error;
+pub mod fields;
 pub mod faiss_flat;
 pub mod kmeans;
 pub mod lock;

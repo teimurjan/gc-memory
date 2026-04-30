@@ -22,7 +22,7 @@ single Rust binary (`lethe`) plus PyPI / npm bindings.
   Python's `embeddings.npz` is migrated in via `lethe migrate`).
 - **ONNX Runtime** (via `ort`) for the bi-encoder + cross-encoder.
   Default models: `Xenova/all-MiniLM-L6-v2`, `Xenova/ms-marco-MiniLM-L-6-v2`.
-- **Python `legacy/`** kept for the research-journey trail: produces the
+- **Python `research_playground/lethe_reference/`** kept for the research-journey trail: produces the
   benchmark numbers cited below. Installed as `lethe-memory-legacy` in
   dev venvs; not published.
 - **Datasets** (`tmp_data/`, gitignored): LongMemEval (S), NFCorpus.
@@ -41,16 +41,16 @@ cargo install --git https://github.com/j178/prek
 prek install                             # writes .git/hooks/pre-commit + pre-push
 prek run --all-files                     # one-off run
 
-# Legacy Python (research trail; library only)
-uv pip install -e legacy/
-cd legacy && uv run pytest tests/ -v     # 148 + 8 PyO3 parity = 156
-uv run python legacy/benchmarks/run_benchmark.py
+# Python reference impl (research trail; library only)
+uv pip install -e research_playground/lethe_reference/
+cd research_playground/lethe_reference && uv run pytest tests/ -v     # 148 + 8 PyO3 parity = 156
+uv run python research_playground/baseline/run.py
 
 # Python ↔ Rust parity bench
-uv run python migration_benchmarks/prepare.py
-uv run python migration_benchmarks/longmemeval.py --compare
-uv run python migration_benchmarks/components.py --compare
-uv run python migration_benchmarks/latency.py --compare
+uv run python research_playground/rust_migration/prepare.py
+uv run python research_playground/rust_migration/longmemeval.py --compare
+uv run python research_playground/rust_migration/components.py --compare
+uv run python research_playground/rust_migration/latency.py --compare
 
 # CLI surface (the `lethe` binary)
 lethe                                    # no args → TUI (in a terminal)
@@ -72,7 +72,7 @@ you want the current directory layout.
   signal on conversation data).
 - Cross-encoder rerank on the merged candidate pool; adaptive depth
   (shallow `k=30`, deep `k=100` only when shallow confidence is low —
-  see `legacy/benchmarks/results/BENCHMARKS_DEEP_PASS.md`).
+  see `research_playground/deep_pass/results/BENCHMARKS_DEEP_PASS.md`).
 - Cosine 0.95 dedup on add (removes ~5% of LongMemEval, +6.5% NDCG).
 - Tier lifecycle: naive → gc → memory (with decay and apoptosis).
 - RIF: retrieval-induced forgetting suppresses chronic false positives

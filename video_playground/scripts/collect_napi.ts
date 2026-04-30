@@ -5,9 +5,10 @@
 // `demo/data/queries.json` set, and writes per-query top-5 hits to
 // `demo/public/napi_run.json` for the Remotion compositions.
 //
-// The legacy Python collectors live under `legacy/demo_scripts/` and
-// remain the source of truth for the full RIF A/B benchmarks; this
-// script is the binding-only demo that lives alongside the TS demo.
+// The Python benchmark scripts under `research_playground/` (especially
+// `rif/` and `baseline/`) remain the source of truth for the full RIF
+// A/B benchmarks; this script is the binding-only demo that lives
+// alongside the TS demo.
 
 import { MemoryStore } from "lethe";
 import * as fs from "node:fs/promises";

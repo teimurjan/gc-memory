@@ -1,7 +1,12 @@
 results/
-!migration_benchmarks/results/
-!legacy/benchmarks/results/
-legacy/benchmarks/results/int8_embeds/
+!research_playground/baseline/results/
+!research_playground/bm25_tokenizer/results/
+!research_playground/deep_pass/results/
+!research_playground/int8/results/
+!research_playground/lifecycle/results/
+!research_playground/rif/results/
+!research_playground/rust_migration/results/
+research_playground/int8/results/int8_embeds/
 data/
 !video_playground/data/
 tmp_data/
