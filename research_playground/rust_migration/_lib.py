@@ -1,11 +1,11 @@
-"""Shared utilities for the parity bench suites under `migration_benchmarks/`.
+"""Shared utilities for the parity bench suites under `research_playground/rust_migration/`.
 
 Every bench script follows the same CLI shape:
   - ``--impl=python``  run one implementation, emit JSON to stdout
   - ``--impl=rust``    same, swapped impl
   - ``--compare``      run both, write a single markdown report under
-                       ``migration_benchmarks/results/`` and clean up intermediate
-                       JSON via tempfiles
+                       ``research_playground/rust_migration/results/`` and clean up
+                       intermediate JSON via tempfiles
 
 The "1-1" promise: both ``--impl`` paths exercise the same eval logic
 on the same inputs and emit JSON of the same shape, so swapping is
@@ -21,8 +21,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-RESULTS = REPO / "migration_benchmarks" / "results"
+REPO = Path(__file__).resolve().parent.parent.parent
+RESULTS = REPO / "research_playground" / "rust_migration" / "results"
 DATA = REPO / "tmp_data"
 LME_RUST = DATA / "lme_rust"
 RUST_BIN = REPO / "target" / "release" / "lethe-benchmark"
@@ -51,7 +51,7 @@ def find_rust_bin() -> Path:
 
 
 def report_path(suite: str) -> Path:
-    """Canonical markdown output path: migration_benchmarks/results/COMPARE_<suite>_<host>_<date>.md."""
+    """Canonical markdown output path: research_playground/rust_migration/results/COMPARE_<suite>_<host>_<date>.md."""
     host = platform.node().replace("/", "_") or "unknown"
     today = datetime.now().strftime("%Y-%m-%d")
     return ensure_results_dir() / f"COMPARE_{suite.upper()}_{host}_{today}.md"
@@ -84,6 +84,6 @@ def load_sampled_indices() -> list[int]:
     p = LME_RUST / "sampled_query_indices.txt"
     if not p.exists():
         raise SystemExit(
-            f"missing {p}. Run `uv run python migration_benchmarks/prepare.py` first."
+            f"missing {p}. Run `uv run python research_playground/rust_migration/prepare.py` first."
         )
     return [int(x) for x in p.read_text().split() if x.strip()]

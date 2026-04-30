@@ -1,7 +1,7 @@
 //! Shared store-construction + config helpers.
 //!
 //! Mirrors the Python `_open_store` + `load_config` + `save_config`
-//! family. Defaults match `DEFAULT_CONFIG` in `legacy/lethe/cli.py`.
+//! family. Defaults match `DEFAULT_CONFIG` in `research_playground/lethe_reference/lethe/cli.py`.
 
 use std::collections::BTreeMap;
 use std::path::Path;

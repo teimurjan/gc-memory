@@ -1,5 +1,5 @@
 //! Cross-encoder reranking + adaptive deep-pass — port of
-//! `legacy/lethe/reranker.py`.
+//! `research_playground/lethe_reference/lethe/reranker.py`.
 //!
 //! `needs_deep_search` mirrors the Python check: trigger the deep
 //! candidate pass when the top cross-encoder score from the shallow

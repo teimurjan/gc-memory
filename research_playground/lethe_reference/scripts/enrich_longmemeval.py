@@ -22,8 +22,9 @@ from pathlib import Path
 
 DATA = Path("tmp_data")
 
-# Inside legacy/ the package is at `legacy/lethe/`; parent.parent is
-# `legacy/` itself, which is on sys.path after `pip install -e legacy/`.
+# The package is at `research_playground/lethe_reference/lethe/`; parent.parent
+# is `research_playground/lethe_reference/` itself, which is on sys.path after
+# `pip install -e research_playground/lethe_reference/`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lethe.enrichment import enrich_dataset, EnrichmentStats  # noqa: E402

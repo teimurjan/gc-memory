@@ -1,4 +1,4 @@
-//! Deduplication helpers — direct port of `legacy/lethe/dedup.py`.
+//! Deduplication helpers — direct port of `research_playground/lethe_reference/lethe/dedup.py`.
 //!
 //! Two flavors:
 //! * Exact: SHA-256 of the chunk text (`content_hash`). Mirrors

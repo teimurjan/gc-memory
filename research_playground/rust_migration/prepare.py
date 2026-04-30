@@ -38,7 +38,7 @@ def main(argv: list[str]) -> int:
     src = DATA / "longmemeval_prepared.npz"
     if not src.exists():
         sys.stderr.write(
-            f"error: {src} not found. Run `uv run python legacy/scripts/prep_longmemeval.py` first.\n"
+            f"error: {src} not found. Run `uv run python research_playground/lethe_reference/scripts/prep_longmemeval.py` first.\n"
         )
         return 2
 

@@ -1,9 +1,9 @@
-//! `lethe-benchmark` — Rust counterpart to `legacy/benchmarks/run_benchmark.py`.
+//! `lethe-benchmark` — Rust counterpart to `research_playground/baseline/run.py`.
 //!
 //! Runs the same five retrieval configurations on LongMemEval data,
 //! reusing the precomputed embeddings exported by
-//! `migration_benchmarks/prepare.py`. Outputs JSON to stdout in the
-//! same shape as `migration_benchmarks/longmemeval.py --impl python`
+//! `research_playground/rust_migration/prepare.py`. Outputs JSON to stdout in the
+//! same shape as `research_playground/rust_migration/longmemeval.py --impl python`
 //! so the two are directly diffable.
 //!
 //! The cross-encoder rerank step uses the production Rust path
@@ -22,8 +22,9 @@ use std::time::Instant;
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use lethe_core::bm25::BM25Okapi;
-use lethe_core::encoders::CrossEncoder;
+use lethe_core::encoders::{BiEncoder, CrossEncoder, Pooling};
 use lethe_core::faiss_flat::FlatIp;
+use lethe_core::fields::{extract_entities, extract_title};
 use lethe_core::tokenize::tokenize_bm25;
 use ndarray::{Array2, ArrayView1};
 
@@ -38,6 +39,45 @@ struct Cli {
     #[arg(long, global = true, default_value = "tmp_data")]
     data: PathBuf,
 
+    /// HuggingFace repo of the cross-encoder reranker. Must export an
+    /// ONNX model + tokenizer.json at the standard paths. Default
+    /// matches the production pipeline. A different value here only
+    /// changes the rerank stage; bi-encoder embeddings stay fixed
+    /// because they're loaded from the pre-baked `lme_rust/` files.
+    #[arg(long, global = true, default_value = "Xenova/ms-marco-MiniLM-L-6-v2")]
+    cross_encoder: String,
+
+    /// Cap the number of evaluated queries — uses the first N entries
+    /// of `sampled_query_indices.txt`. Useful for fast iteration on
+    /// expensive rerankers. `0` means no cap.
+    #[arg(long, global = true, default_value_t = 0)]
+    sample_limit: usize,
+
+    /// HuggingFace repo of the bi-encoder. The default reads the
+    /// existing `lme_rust/` cache (Python-prepped MiniLM-L6 embeddings).
+    /// Setting a different value reads `lme_<sanitized>/` instead, which
+    /// must be generated first via the `prepare-embeddings` subcommand.
+    #[arg(long, global = true, default_value = "Xenova/all-MiniLM-L6-v2")]
+    bi_encoder: String,
+
+    /// Pooling strategy for the bi-encoder. mean = MiniLM/mpnet,
+    /// cls = BGE/Snowflake/Nomic. Wrong choice silently destroys NDCG.
+    #[arg(long, global = true, default_value = "mean")]
+    pooling: String,
+
+    /// Optional path-within-repo of an ONNX variant (e.g.
+    /// `onnx/model_int8.onnx`). When unset, uses the canonical
+    /// `onnx/model.onnx`. Quantized variants give 3-4× CPU speedup
+    /// at small NDCG cost, useful for fast prep iterations.
+    #[arg(long, global = true)]
+    bi_encoder_onnx: Option<String>,
+
+    /// Read late-chunking embeddings (`lme_<sanitized>_late/`)
+    /// produced by `prepare-embeddings-late`, instead of the
+    /// standard `lme_<sanitized>/` cache.
+    #[arg(long, global = true)]
+    late: bool,
+
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -46,6 +86,33 @@ struct Cli {
 enum Cmd {
     /// Run the 5 LongMemEval retrieval configs and emit NDCG/Recall as JSON.
     Longmemeval,
+    /// Re-encode the LongMemEval corpus + queries with `--bi-encoder`
+    /// and write a fresh `lme_<sanitized>/` cache the bench can read.
+    /// Idempotent — does nothing if the cache already exists, unless
+    /// `--force` is passed.
+    PrepareEmbeddings {
+        #[arg(long)]
+        force: bool,
+        /// Encoding batch size. 32 fits comfortably for 768-d models on
+        /// 16GB; bump to 64 for smaller models.
+        #[arg(long, default_value_t = 32)]
+        batch_size: usize,
+    },
+    /// Late-chunking variant: re-encode each LongMemEval *session*
+    /// in a single long-context forward pass, then mean-pool over each
+    /// turn's token span. Requires a long-context bi-encoder
+    /// (e.g. `nomic-ai/nomic-embed-text-v1.5`, 8k context).
+    /// Writes to `lme_<sanitized>_late/` so the bench can read it via
+    /// `--bi-encoder <repo> --late`.
+    PrepareEmbeddingsLate {
+        #[arg(long)]
+        force: bool,
+        /// Tokenizer/model max sequence length. Must be ≥ the model's
+        /// `max_position_embeddings`. Sessions longer than this fall
+        /// back to per-turn encoding (no late-chunking benefit).
+        #[arg(long, default_value_t = 8192)]
+        max_len: usize,
+    },
     /// BM25 score vector for each query in stdin JSON `{"queries": ["..."]}`.
     Bm25 {
         /// Path to JSON `{"queries": [...]}`. Use `-` for stdin.
@@ -64,6 +131,34 @@ enum Cmd {
     },
 }
 
+/// Map a HuggingFace repo to a filesystem-safe subdir of `--data`.
+/// `Xenova/all-MiniLM-L6-v2` is the canonical baseline whose cache lives
+/// at `lme_rust/` (matching `research_playground/rust_migration/prepare.py`); every
+/// other model gets a parallel `lme_<sanitized>/` directory.
+fn lme_dir_name(bi_encoder: &str) -> String {
+    if bi_encoder == "Xenova/all-MiniLM-L6-v2"
+        || bi_encoder == "sentence-transformers/all-MiniLM-L6-v2"
+        || bi_encoder == "all-MiniLM-L6-v2"
+    {
+        return "lme_rust".to_owned();
+    }
+    let sanitized: String = bi_encoder
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("lme_{sanitized}")
+}
+
+fn lme_late_dir_name(bi_encoder: &str) -> String {
+    format!("{}_late", lme_dir_name(bi_encoder))
+}
+
 #[derive(serde::Serialize)]
 struct ConfigMetrics {
     ndcg: f64,
@@ -80,20 +175,55 @@ struct Output {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let pooling = Pooling::parse(&cli.pooling).map_err(|e| anyhow!(e.to_string()))?;
     match cli.cmd {
-        Cmd::Longmemeval => cmd_longmemeval(&cli.data),
+        Cmd::Longmemeval => cmd_longmemeval(
+            &cli.data,
+            &cli.cross_encoder,
+            cli.sample_limit,
+            &cli.bi_encoder,
+            cli.late,
+        ),
+        Cmd::PrepareEmbeddings { force, batch_size } => cmd_prepare_embeddings(
+            &cli.data,
+            &cli.bi_encoder,
+            cli.bi_encoder_onnx.as_deref(),
+            pooling,
+            force,
+            batch_size,
+        ),
+        Cmd::PrepareEmbeddingsLate { force, max_len } => cmd_prepare_embeddings_late(
+            &cli.data,
+            &cli.bi_encoder,
+            cli.bi_encoder_onnx.as_deref(),
+            pooling,
+            force,
+            max_len,
+        ),
         Cmd::Bm25 { queries } => cmd_bm25(&cli.data, &queries),
         Cmd::FlatIp { queries } => cmd_flat_ip(&cli.data, &queries),
-        Cmd::Xenc { pairs } => cmd_xenc(&pairs),
+        Cmd::Xenc { pairs } => cmd_xenc(&pairs, &cli.cross_encoder),
     }
 }
 
 #[allow(clippy::too_many_lines)]
-fn cmd_longmemeval(data: &std::path::Path) -> Result<()> {
+fn cmd_longmemeval(
+    data: &std::path::Path,
+    cross_encoder_repo: &str,
+    sample_limit: usize,
+    bi_encoder_repo: &str,
+    late: bool,
+) -> Result<()> {
     let cli_data = data;
-    let lme_rust = cli_data.join("lme_rust");
+    let lme_rust = if late {
+        cli_data.join(lme_late_dir_name(bi_encoder_repo))
+    } else {
+        cli_data.join(lme_dir_name(bi_encoder_repo))
+    };
+    eprintln!("[rust] reading from {}", lme_rust.display());
     let meta: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(lme_rust.join("meta.json")).context("read meta.json")?,
+        &std::fs::read_to_string(lme_rust.join("meta.json"))
+            .with_context(|| format!("read {}/meta.json", lme_rust.display()))?,
     )?;
     let n_corpus = meta["n_corpus"].as_u64().unwrap() as usize;
     let n_queries = meta["n_queries"].as_u64().unwrap() as usize;
@@ -117,10 +247,14 @@ fn cmd_longmemeval(data: &std::path::Path) -> Result<()> {
     eprintln!("[rust] reading query embeddings…");
     let query_embs = read_f32_matrix(&lme_rust.join("query_embeddings.bin"), n_queries, dim)?;
 
-    let sampled: Vec<usize> = std::fs::read_to_string(lme_rust.join("sampled_query_indices.txt"))?
-        .lines()
-        .map(str::parse)
-        .collect::<Result<_, _>>()?;
+    let mut sampled: Vec<usize> =
+        std::fs::read_to_string(lme_rust.join("sampled_query_indices.txt"))?
+            .lines()
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+    if sample_limit > 0 && sampled.len() > sample_limit {
+        sampled.truncate(sample_limit);
+    }
     eprintln!("[rust] sampled {} queries", sampled.len());
 
     let qrels: HashMap<String, HashMap<String, f64>> = serde_json::from_str(
@@ -145,8 +279,68 @@ fn cmd_longmemeval(data: &std::path::Path) -> Result<()> {
     eprintln!("[rust] building BM25…");
     let bm25 = BM25Okapi::new(&tokenized);
 
-    eprintln!("[rust] loading cross-encoder (ONNX)…");
-    let xenc = CrossEncoder::from_repo("Xenova/ms-marco-MiniLM-L-6-v2")
+    // Multi-field views — extracted once, indexed in their own BM25.
+    // Hypothesis: BM25 is the load-bearing leg on this corpus
+    // (`bm25_only` 2× `vector_only`), so giving BM25 richer signal —
+    // entity tokens and the first-line "title" — should lift NDCG
+    // more than swapping models. See "Implementation note: reranker
+    // + bi-encoder ablation" in `RESEARCH_JOURNEY.md`.
+    eprintln!("[rust] extracting entity / title fields…");
+    let t_fields = Instant::now();
+    let tokenized_entities: Vec<Vec<String>> = corpus_ids
+        .iter()
+        .map(|cid| {
+            let body = corpus_content.get(cid).map_or("", String::as_str);
+            // Entity extractor already lowercases — we only need to
+            // split on word boundaries to match BM25's expected token
+            // shape. tokenize_bm25 handles punctuation in joined form.
+            let ents = extract_entities(body);
+            tokenize_bm25(&ents.join(" "))
+        })
+        .collect();
+    let tokenized_titles: Vec<Vec<String>> = corpus_ids
+        .iter()
+        .map(|cid| {
+            let body = corpus_content.get(cid).map_or("", String::as_str);
+            tokenize_bm25(&extract_title(body))
+        })
+        .collect();
+    let n_with_entities = tokenized_entities.iter().filter(|v| !v.is_empty()).count();
+    let n_with_titles = tokenized_titles.iter().filter(|v| !v.is_empty()).count();
+    eprintln!(
+        "[rust] extracted: entities on {n_with_entities}/{n_corpus} chunks, \
+         titles on {n_with_titles}/{n_corpus} ({:.1}s)",
+        t_fields.elapsed().as_secs_f64()
+    );
+    eprintln!("[rust] building entity + title BM25 indexes…");
+    let bm25_entities = BM25Okapi::new(&tokenized_entities);
+    let bm25_titles = BM25Okapi::new(&tokenized_titles);
+
+    // Field-boosted body: append entity tokens (×2 for upweighting)
+    // and title tokens to the body before BM25 indexing. Single
+    // BM25 instead of RRF-merging separate fields — equal-weight
+    // RRF on this corpus regressed `lethe_full` by 3.6pp because
+    // the entity field has 63% empty docs that pollute the merge.
+    // Field-boosted indexing lets entity tokens raise TF in the
+    // single body index without making them an independent
+    // retrieval source.
+    eprintln!("[rust] building field-boosted body BM25…");
+    let tokenized_boosted: Vec<Vec<String>> = (0..n_corpus)
+        .map(|i| {
+            let mut toks = tokenized[i].clone();
+            // 2× weight on entity tokens: appear once via the
+            // body text already, twice more here. Title tokens
+            // get +1 boost.
+            toks.extend(tokenized_entities[i].iter().cloned());
+            toks.extend(tokenized_entities[i].iter().cloned());
+            toks.extend(tokenized_titles[i].iter().cloned());
+            toks
+        })
+        .collect();
+    let bm25_boosted = BM25Okapi::new(&tokenized_boosted);
+
+    eprintln!("[rust] loading cross-encoder (ONNX) repo={cross_encoder_repo}…");
+    let xenc = CrossEncoder::from_repo(cross_encoder_repo)
         .map_err(|e| anyhow!("cross-encoder: {e}"))?;
     let _ = xenc.predict(&[("warm", "warm")]);
 
@@ -343,15 +537,513 @@ fn cmd_longmemeval(data: &std::path::Path) -> Result<()> {
         );
     }
 
+    // 6. lethe_multifield = BM25(body) ⊕ BM25(entities) ⊕ BM25(title)
+    //    ⊕ vector → RRF → cross-encoder rerank.
+    //    Hypothesis: separating the entity / title signal from the
+    //    body BM25 lets the reranker see candidates the single-field
+    //    BM25 was diluting. Top-K mirrors the memo'd prototype:
+    //    body=30 / entities=20 / title=20 / dense=30.
+    {
+        let t0 = Instant::now();
+        let mut ndcgs = Vec::new();
+        let mut recalls = Vec::new();
+        for &i in &sampled {
+            let qid = &query_ids[i];
+            let qrel = match qrels.get(qid) {
+                Some(q) if !q.is_empty() => q,
+                _ => continue,
+            };
+            let qt = query_texts.get(qid).cloned().unwrap_or_default();
+            let qe = query_embs.row(i);
+
+            let vec_ids: Vec<&str> = flat
+                .search(qe, 30)?
+                .into_iter()
+                .map(|(idx, _)| corpus_ids[idx].as_str())
+                .collect();
+
+            // Body BM25 query is the raw query text. Entities &
+            // title BM25s receive the same query text — extracting
+            // entities from a typical question pulls back too few
+            // tokens to score reliably (verified manually on a few
+            // LongMemEval queries).
+            let q_tokens = tokenize_bm25(&qt);
+            let body_scores = bm25.get_scores(&q_tokens);
+            let body_ids: Vec<&str> = top_k_ids_ref(&body_scores, &corpus_ids, 30);
+            let entity_scores = bm25_entities.get_scores(&q_tokens);
+            let entity_ids: Vec<&str> = top_k_ids_ref(&entity_scores, &corpus_ids, 20);
+            let title_scores = bm25_titles.get_scores(&q_tokens);
+            let title_ids: Vec<&str> = top_k_ids_ref(&title_scores, &corpus_ids, 20);
+
+            let merged = lethe_core::rrf::rrf_merge(&[body_ids, entity_ids, title_ids, vec_ids]);
+            // Keep up to 60 candidates for the rerank pool — same
+            // budget as `lethe_full` so the comparison isolates
+            // signal quality, not pool size.
+            let union: Vec<String> = merged.into_iter().take(60).map(|(s, _)| s).collect();
+
+            let pairs: Vec<(&str, &str)> = union
+                .iter()
+                .map(|id| {
+                    (
+                        qt.as_str(),
+                        corpus_content.get(id).map_or("", String::as_str),
+                    )
+                })
+                .collect();
+            let scores = xenc.predict(&pairs).map_err(|e| anyhow!("xenc: {e}"))?;
+            let mut scored: Vec<(String, f32)> = union.into_iter().zip(scores).collect();
+            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let top_ids: Vec<String> = scored.into_iter().take(10).map(|(s, _)| s).collect();
+            ndcgs.push(ndcg_at_k(&top_ids, qrel, 10));
+            recalls.push(recall_at_k(&top_ids, qrel, 10));
+        }
+        configs.insert(
+            "lethe_multifield".to_owned(),
+            ConfigMetrics {
+                ndcg: mean(&ndcgs),
+                recall: mean(&recalls),
+                n_eval: ndcgs.len(),
+                time_s: t0.elapsed().as_secs_f64(),
+            },
+        );
+    }
+
+    // 7. lethe_field_boost = BM25(body + 2×entities + title) ⊕ vector
+    //    → dedup union → cross-encoder rerank.
+    //    Same shape as `lethe_full`, just with entity- and title-
+    //    boosted indexing on the BM25 leg. Tests whether enriching
+    //    the single index lifts NDCG (vs the parallel-field
+    //    multi-RRF approach above which regressed).
+    {
+        let t0 = Instant::now();
+        let mut ndcgs = Vec::new();
+        let mut recalls = Vec::new();
+        for &i in &sampled {
+            let qid = &query_ids[i];
+            let qrel = match qrels.get(qid) {
+                Some(q) if !q.is_empty() => q,
+                _ => continue,
+            };
+            let qt = query_texts.get(qid).cloned().unwrap_or_default();
+            let qe = query_embs.row(i);
+            let vec_ids: Vec<String> = flat
+                .search(qe, 30)?
+                .into_iter()
+                .map(|(idx, _)| corpus_ids[idx].clone())
+                .collect();
+            let bm_scores = bm25_boosted.get_scores(&tokenize_bm25(&qt));
+            let bm_ids: Vec<String> = top_k_ids(&bm_scores, &corpus_ids, 30);
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut union: Vec<String> = Vec::with_capacity(60);
+            for id in vec_ids.into_iter().chain(bm_ids) {
+                if seen.insert(id.clone()) {
+                    union.push(id);
+                }
+            }
+            let pairs: Vec<(&str, &str)> = union
+                .iter()
+                .map(|id| {
+                    (
+                        qt.as_str(),
+                        corpus_content.get(id).map_or("", String::as_str),
+                    )
+                })
+                .collect();
+            let scores = xenc.predict(&pairs).map_err(|e| anyhow!("xenc: {e}"))?;
+            let mut scored: Vec<(String, f32)> = union.into_iter().zip(scores).collect();
+            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let top_ids: Vec<String> = scored.into_iter().take(10).map(|(s, _)| s).collect();
+            ndcgs.push(ndcg_at_k(&top_ids, qrel, 10));
+            recalls.push(recall_at_k(&top_ids, qrel, 10));
+        }
+        configs.insert(
+            "lethe_field_boost".to_owned(),
+            ConfigMetrics {
+                ndcg: mean(&ndcgs),
+                recall: mean(&recalls),
+                n_eval: ndcgs.len(),
+                time_s: t0.elapsed().as_secs_f64(),
+            },
+        );
+    }
+
+    // 8. bm25_boost_only = BM25(body + 2×entities + title), top-10.
+    //    Sanity: did field-boosted indexing change BM25-alone
+    //    rankings? If `bm25_boost_only` ≥ `bm25_only`, the boost
+    //    helps the index; if ≤, it doesn't and `lethe_field_boost`
+    //    can't be expected to win either.
+    {
+        let t0 = Instant::now();
+        let mut ndcgs = Vec::new();
+        let mut recalls = Vec::new();
+        for &i in &sampled {
+            let qid = &query_ids[i];
+            let qrel = match qrels.get(qid) {
+                Some(q) if !q.is_empty() => q,
+                _ => continue,
+            };
+            let qt = query_texts.get(qid).cloned().unwrap_or_default();
+            let scores = bm25_boosted.get_scores(&tokenize_bm25(&qt));
+            let top_ids = top_k_ids(&scores, &corpus_ids, 10);
+            ndcgs.push(ndcg_at_k(&top_ids, qrel, 10));
+            recalls.push(recall_at_k(&top_ids, qrel, 10));
+        }
+        configs.insert(
+            "bm25_boost_only".to_owned(),
+            ConfigMetrics {
+                ndcg: mean(&ndcgs),
+                recall: mean(&recalls),
+                n_eval: ndcgs.len(),
+                time_s: t0.elapsed().as_secs_f64(),
+            },
+        );
+    }
+
     let out = Output {
         impl_: "rust".to_owned(),
         configs,
     };
     let json = serde_json::to_string_pretty(&serde_json::json!({
         "impl": out.impl_,
+        "cross_encoder": cross_encoder_repo,
+        "bi_encoder": bi_encoder_repo,
+        "lme_dir": lme_rust.file_name().and_then(|s| s.to_str()).unwrap_or(""),
         "configs": out.configs,
     }))?;
     println!("{json}");
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn cmd_prepare_embeddings(
+    data: &std::path::Path,
+    bi_encoder_repo: &str,
+    onnx_variant: Option<&str>,
+    pooling: Pooling,
+    force: bool,
+    batch_size: usize,
+) -> Result<()> {
+    let out_dir = data.join(lme_dir_name(bi_encoder_repo));
+    let meta_path = out_dir.join("meta.json");
+    if meta_path.exists() && !force {
+        eprintln!("[prep] up to date: {}", meta_path.display());
+        return Ok(());
+    }
+    std::fs::create_dir_all(&out_dir)?;
+
+    let canonical = data.join("lme_rust");
+    let corpus_ids: Vec<String> = std::fs::read_to_string(canonical.join("corpus_ids.txt"))
+        .with_context(|| format!("read {}/corpus_ids.txt", canonical.display()))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let query_ids: Vec<String> = std::fs::read_to_string(canonical.join("query_ids.txt"))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let sampled_indices: String =
+        std::fs::read_to_string(canonical.join("sampled_query_indices.txt"))?;
+
+    let corpus_content: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_corpus.json"),
+    )?)?;
+    let query_texts: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_queries.json"),
+    )?)?;
+
+    eprintln!(
+        "[prep] loading bi-encoder repo={bi_encoder_repo} pooling={pooling:?} onnx={}…",
+        onnx_variant.unwrap_or("(default)")
+    );
+    let bi = BiEncoder::from_repo_full(bi_encoder_repo, onnx_variant, pooling)
+        .map_err(|e| anyhow!("bi-encoder load: {e}"))?;
+    let dim = bi.dim();
+    eprintln!("[prep] dim={dim}");
+
+    let n_corpus = corpus_ids.len();
+    let n_queries = query_ids.len();
+
+    eprintln!("[prep] encoding {n_corpus} corpus chunks…");
+    let mut corpus_embs = Array2::<f32>::zeros((n_corpus, dim));
+    encode_into(
+        &bi,
+        &corpus_ids,
+        &corpus_content,
+        batch_size,
+        &mut corpus_embs,
+        "corpus",
+    )?;
+    write_f32_matrix(&out_dir.join("corpus_embeddings.bin"), &corpus_embs)?;
+    std::fs::write(out_dir.join("corpus_ids.txt"), corpus_ids.join("\n"))?;
+
+    eprintln!("[prep] encoding {n_queries} queries…");
+    let mut query_embs = Array2::<f32>::zeros((n_queries, dim));
+    encode_into(
+        &bi,
+        &query_ids,
+        &query_texts,
+        batch_size,
+        &mut query_embs,
+        "queries",
+    )?;
+    write_f32_matrix(&out_dir.join("query_embeddings.bin"), &query_embs)?;
+    std::fs::write(out_dir.join("query_ids.txt"), query_ids.join("\n"))?;
+
+    std::fs::write(
+        out_dir.join("sampled_query_indices.txt"),
+        sampled_indices,
+    )?;
+
+    let meta = serde_json::json!({
+        "n_corpus": n_corpus,
+        "n_queries": n_queries,
+        "dim": dim,
+        "bi_encoder": bi_encoder_repo,
+        "pooling": format!("{pooling:?}").to_lowercase(),
+    });
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+    eprintln!("[prep] wrote {}", out_dir.display());
+    println!("{}", serde_json::to_string_pretty(&meta)?);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn cmd_prepare_embeddings_late(
+    data: &std::path::Path,
+    bi_encoder_repo: &str,
+    onnx_variant: Option<&str>,
+    pooling: Pooling,
+    force: bool,
+    max_len: usize,
+) -> Result<()> {
+    let out_dir = data.join(lme_late_dir_name(bi_encoder_repo));
+    let meta_path = out_dir.join("meta.json");
+    if meta_path.exists() && !force {
+        eprintln!("[prep-late] up to date: {}", meta_path.display());
+        return Ok(());
+    }
+    std::fs::create_dir_all(&out_dir)?;
+
+    // Reuse the canonical lme_rust IDs/sample so the bench can read
+    // this dir interchangeably with the standard prep.
+    let canonical = data.join("lme_rust");
+    let corpus_ids: Vec<String> = std::fs::read_to_string(canonical.join("corpus_ids.txt"))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let query_ids: Vec<String> = std::fs::read_to_string(canonical.join("query_ids.txt"))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let sampled_indices: String =
+        std::fs::read_to_string(canonical.join("sampled_query_indices.txt"))?;
+
+    let corpus_content: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_corpus.json"),
+    )?)?;
+    let query_texts: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_queries.json"),
+    )?)?;
+
+    // longmemeval_meta.json: corpus_id → {session_id, turn_idx}.
+    // Used to group turns into sessions for late-chunking.
+    #[derive(serde::Deserialize)]
+    struct MetaEntry {
+        session_id: String,
+        turn_idx: usize,
+    }
+    let meta_map: HashMap<String, MetaEntry> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_meta.json"),
+    )?)?;
+
+    eprintln!(
+        "[prep-late] loading bi-encoder repo={bi_encoder_repo} pooling={pooling:?} \
+         max_len={max_len} onnx={}…",
+        onnx_variant.unwrap_or("(default)")
+    );
+    let bi = BiEncoder::from_repo_full_with_max_len(
+        bi_encoder_repo,
+        onnx_variant,
+        pooling,
+        max_len,
+    )
+    .map_err(|e| anyhow!("bi-encoder load: {e}"))?;
+    let dim = bi.dim();
+    eprintln!("[prep-late] dim={dim}");
+
+    // Group corpus_ids by session, preserving canonical order so we
+    // can scatter results back to the right rows in corpus_embeddings.bin.
+    let mut sessions: std::collections::BTreeMap<String, Vec<(usize, usize)>> =
+        std::collections::BTreeMap::new();
+    for (row, cid) in corpus_ids.iter().enumerate() {
+        let m = meta_map
+            .get(cid)
+            .ok_or_else(|| anyhow!("corpus_id {cid} missing from meta"))?;
+        sessions
+            .entry(m.session_id.clone())
+            .or_default()
+            .push((m.turn_idx, row));
+    }
+    // Sort each session's turns by turn_idx — chronological order is
+    // the right context for late-chunking.
+    for v in sessions.values_mut() {
+        v.sort_by_key(|t| t.0);
+    }
+    eprintln!(
+        "[prep-late] {} sessions, mean {:.1} turns/session",
+        sessions.len(),
+        corpus_ids.len() as f64 / sessions.len() as f64
+    );
+
+    let n_corpus = corpus_ids.len();
+    let mut corpus_embs = Array2::<f32>::zeros((n_corpus, dim));
+    let mut n_late = 0_usize;
+    let mut n_fallback = 0_usize;
+    let mut next_log = 0;
+    // Log every ~2% of sessions so progress is visible during the
+    // multi-hour prep without spamming stderr.
+    let log_every = (sessions.len() / 50).max(1);
+    let t0 = Instant::now();
+
+    for (sess_idx, (sess_id, turns)) in sessions.iter().enumerate() {
+        let texts: Vec<&str> = turns
+            .iter()
+            .map(|(_, row)| {
+                corpus_content
+                    .get(&corpus_ids[*row])
+                    .map_or("", String::as_str)
+            })
+            .collect();
+        let rows: Vec<usize> = turns.iter().map(|(_, r)| *r).collect();
+
+        let result = bi.encode_session(&texts);
+        let embs = match result {
+            Ok(e) => {
+                n_late += 1;
+                e
+            }
+            Err(_) => {
+                // Session too long — fall back to per-turn encoding.
+                // Loses late-chunking benefit for this session but
+                // keeps the bench workable on outliers.
+                n_fallback += 1;
+                bi.encode_batch(&texts)
+                    .map_err(|e| anyhow!("encode_batch fallback: {e}"))?
+            }
+        };
+        for (j, row) in rows.iter().enumerate() {
+            for (k, v) in embs.row(j).iter().enumerate() {
+                corpus_embs[[*row, k]] = *v;
+            }
+        }
+        if sess_idx >= next_log {
+            let elapsed = t0.elapsed().as_secs_f64();
+            let rate = (sess_idx + 1) as f64 / elapsed.max(1e-3);
+            let eta = (sessions.len() - sess_idx - 1) as f64 / rate.max(1e-6);
+            eprintln!(
+                "[prep-late] session {}/{} ({:.1}/s, eta {:.0}s, late={} fallback={}) [{sess_id}]",
+                sess_idx + 1,
+                sessions.len(),
+                rate,
+                eta,
+                n_late,
+                n_fallback
+            );
+            next_log = sess_idx + log_every;
+        }
+    }
+    eprintln!(
+        "[prep-late] done: late={n_late} fallback={n_fallback} ({:.1}% late)",
+        100.0 * n_late as f64 / (n_late + n_fallback).max(1) as f64
+    );
+
+    write_f32_matrix(&out_dir.join("corpus_embeddings.bin"), &corpus_embs)?;
+    std::fs::write(out_dir.join("corpus_ids.txt"), corpus_ids.join("\n"))?;
+
+    // Queries are stand-alone — no late-chunking applies. Encode
+    // them with the standard batch path.
+    eprintln!("[prep-late] encoding {} queries…", query_ids.len());
+    let mut query_embs = Array2::<f32>::zeros((query_ids.len(), dim));
+    encode_into(
+        &bi,
+        &query_ids,
+        &query_texts,
+        32,
+        &mut query_embs,
+        "queries",
+    )?;
+    write_f32_matrix(&out_dir.join("query_embeddings.bin"), &query_embs)?;
+    std::fs::write(out_dir.join("query_ids.txt"), query_ids.join("\n"))?;
+    std::fs::write(
+        out_dir.join("sampled_query_indices.txt"),
+        sampled_indices,
+    )?;
+
+    let meta = serde_json::json!({
+        "n_corpus": n_corpus,
+        "n_queries": query_ids.len(),
+        "dim": dim,
+        "bi_encoder": bi_encoder_repo,
+        "pooling": format!("{pooling:?}").to_lowercase(),
+        "max_len": max_len,
+        "late_chunking": true,
+        "n_sessions_late": n_late,
+        "n_sessions_fallback": n_fallback,
+    });
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+    eprintln!("[prep-late] wrote {}", out_dir.display());
+    println!("{}", serde_json::to_string_pretty(&meta)?);
+    Ok(())
+}
+
+fn encode_into(
+    bi: &BiEncoder,
+    ids: &[String],
+    text_map: &HashMap<String, String>,
+    batch_size: usize,
+    out: &mut Array2<f32>,
+    label: &str,
+) -> Result<()> {
+    let n = ids.len();
+    let mut row = 0;
+    let mut next_log = 0;
+    let log_every = (n / 20).max(1);
+    let t0 = Instant::now();
+    while row < n {
+        let end = (row + batch_size).min(n);
+        let batch_texts: Vec<&str> = (row..end)
+            .map(|i| text_map.get(&ids[i]).map_or("", String::as_str))
+            .collect();
+        let batch = bi
+            .encode_batch(&batch_texts)
+            .map_err(|e| anyhow!("encode_batch: {e}"))?;
+        for (j, src_row) in batch.outer_iter().enumerate() {
+            for (k, v) in src_row.iter().enumerate() {
+                out[[row + j, k]] = *v;
+            }
+        }
+        row = end;
+        if row >= next_log {
+            let elapsed = t0.elapsed().as_secs_f64();
+            let rate = row as f64 / elapsed.max(1e-3);
+            let eta = (n - row) as f64 / rate.max(1e-6);
+            eprintln!(
+                "[prep] {label}: {row}/{n} ({rate:.0}/s, eta {eta:.0}s)"
+            );
+            next_log = row + log_every;
+        }
+    }
+    Ok(())
+}
+
+fn write_f32_matrix(path: &std::path::Path, m: &Array2<f32>) -> Result<()> {
+    let bytes: Vec<u8> = m
+        .as_slice()
+        .ok_or_else(|| anyhow!("non-contiguous matrix"))?
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    std::fs::write(path, bytes)?;
     Ok(())
 }
 
@@ -451,9 +1143,9 @@ struct PairsInput {
     pairs: Vec<(String, String)>,
 }
 
-fn cmd_xenc(pairs_path: &std::path::Path) -> Result<()> {
+fn cmd_xenc(pairs_path: &std::path::Path, cross_encoder_repo: &str) -> Result<()> {
     let input: PairsInput = serde_json::from_str(&read_input(pairs_path)?)?;
-    let xenc = CrossEncoder::from_repo("Xenova/ms-marco-MiniLM-L-6-v2")
+    let xenc = CrossEncoder::from_repo(cross_encoder_repo)
         .map_err(|e| anyhow!("cross-encoder: {e}"))?;
     let pairs_ref: Vec<(&str, &str)> = input
         .pairs

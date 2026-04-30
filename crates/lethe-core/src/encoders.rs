@@ -52,24 +52,31 @@ pub fn resolve_cross_name(name: &str) -> &str {
 }
 
 fn fetch_model(repo: &str) -> Result<(PathBuf, PathBuf), Error> {
-    // `with_progress(false)` suppresses the indicatif progress bars
-    // that would otherwise leak onto stderr during cold load. Inside a
-    // ratatui alternate-screen TUI those bars stick around at "100%"
-    // and corrupt the screen until restart; outside the TUI we don't
-    // need them either since downloads are one-shot and silent is fine.
+    fetch_model_variant(repo, None)
+}
+
+/// Fetch a specific ONNX variant by filename (relative to the repo
+/// root). `None` falls back to the standard `onnx/model.onnx` →
+/// `model.onnx` discovery used by the production pipeline. Pass
+/// `Some("onnx/model_int8.onnx")` (or similar) to bench the
+/// quantized exports Xenova ships alongside the FP32 model.
+fn fetch_model_variant(repo: &str, variant: Option<&str>) -> Result<(PathBuf, PathBuf), Error> {
     let api = ApiBuilder::new()
         .with_progress(false)
         .build()
         .map_err(|e| Error::Encoder(format!("hf-hub init: {e}")))?;
     let repo_handle = api.model(repo.to_owned());
 
-    // Common Xenova layout: onnx/model.onnx at the root + tokenizer.json.
-    // Some repos use `model.onnx` directly. Try the nested path first;
-    // fall back if it 404s.
-    let model_path = repo_handle
-        .get("onnx/model.onnx")
-        .or_else(|_| repo_handle.get("model.onnx"))
-        .map_err(|e| Error::Encoder(format!("download model.onnx for {repo}: {e}")))?;
+    let model_path = if let Some(v) = variant {
+        repo_handle
+            .get(v)
+            .map_err(|e| Error::Encoder(format!("download {v} for {repo}: {e}")))?
+    } else {
+        repo_handle
+            .get("onnx/model.onnx")
+            .or_else(|_| repo_handle.get("model.onnx"))
+            .map_err(|e| Error::Encoder(format!("download model.onnx for {repo}: {e}")))?
+    };
     let tokenizer_path = repo_handle
         .get("tokenizer.json")
         .map_err(|e| Error::Encoder(format!("download tokenizer.json for {repo}: {e}")))?;
@@ -92,8 +99,8 @@ fn build_session(onnx_path: &std::path::Path) -> Result<Session, Error> {
         .map_err(|e| Error::Encoder(format!("commit ONNX: {e}")))
 }
 
-/// Cap on `(input_ids)` length we feed into the model. Both the
-/// MiniLM bi-encoder and the MS-MARCO cross-encoder are BERT-style
+/// Default cap on `(input_ids)` length we feed into the model. Both
+/// the MiniLM bi-encoder and the MS-MARCO cross-encoder are BERT-style
 /// with `max_position_embeddings = 512`. Without an explicit
 /// truncation config the `tokenizers` crate happily produces
 /// 700-token (q, passage) pairs, and ONNX Runtime then aborts with
@@ -103,10 +110,17 @@ fn build_session(onnx_path: &std::path::Path) -> Result<Session, Error> {
 const MODEL_MAX_LEN: usize = 512;
 
 fn load_tokenizer(path: &std::path::Path) -> Result<Tokenizer, Error> {
+    load_tokenizer_with_max(path, MODEL_MAX_LEN)
+}
+
+fn load_tokenizer_with_max(
+    path: &std::path::Path,
+    max_length: usize,
+) -> Result<Tokenizer, Error> {
     let mut tok =
         Tokenizer::from_file(path).map_err(|e| Error::Encoder(format!("tokenizer.json: {e}")))?;
     tok.with_truncation(Some(tokenizers::TruncationParams {
-        max_length: MODEL_MAX_LEN,
+        max_length,
         // `LongestFirst` matches HuggingFace transformers' default for
         // sequence-pair encoding, which is what the cross-encoder uses.
         strategy: tokenizers::TruncationStrategy::LongestFirst,
@@ -117,18 +131,43 @@ fn load_tokenizer(path: &std::path::Path) -> Result<Tokenizer, Error> {
     Ok(tok)
 }
 
+/// Pooling strategy used to collapse the per-token last hidden state
+/// into a single sentence embedding. MiniLM-L6 / mpnet use mean; BGE /
+/// Snowflake Arctic / Nomic use CLS. Picking the wrong one silently
+/// destroys retrieval quality without crashing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pooling {
+    Mean,
+    Cls,
+}
+
+impl Pooling {
+    pub fn parse(s: &str) -> Result<Self, Error> {
+        match s.to_ascii_lowercase().as_str() {
+            "mean" => Ok(Pooling::Mean),
+            "cls" => Ok(Pooling::Cls),
+            other => Err(Error::Encoder(format!(
+                "unknown pooling '{other}', expected mean|cls"
+            ))),
+        }
+    }
+}
+
 /// Bi-encoder producing L2-normalized embeddings. Single text and
 /// batched APIs match the Python contract: single → 1-D, batch → 2-D.
 #[derive(Clone)]
 pub struct BiEncoder {
     inner: Arc<EncoderInner>,
     dim: usize,
+    pooling: Pooling,
+    max_len: usize,
 }
 
 impl std::fmt::Debug for BiEncoder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BiEncoder")
             .field("dim", &self.dim)
+            .field("pooling", &self.pooling)
             .finish_non_exhaustive()
     }
 }
@@ -148,21 +187,57 @@ struct EncoderInner {
 
 impl BiEncoder {
     pub fn from_repo(repo: &str) -> Result<Self, Error> {
+        Self::from_repo_with_pool(repo, Pooling::Mean)
+    }
+
+    pub fn from_repo_with_pool(repo: &str, pooling: Pooling) -> Result<Self, Error> {
+        Self::from_repo_full(repo, None, pooling)
+    }
+
+    pub fn from_repo_full(
+        repo: &str,
+        onnx_variant: Option<&str>,
+        pooling: Pooling,
+    ) -> Result<Self, Error> {
+        Self::from_repo_full_with_max_len(repo, onnx_variant, pooling, MODEL_MAX_LEN)
+    }
+
+    /// Like `from_repo_full` but lets the caller override the
+    /// tokenizer's truncation cap. Pass `8192` for late-chunking with
+    /// nomic-v1.5 / jina-v2-base / similar long-context models.
+    /// Setting `max_len` larger than the model's `max_position_embeddings`
+    /// will make ONNX inference fail at runtime — verify model card.
+    pub fn from_repo_full_with_max_len(
+        repo: &str,
+        onnx_variant: Option<&str>,
+        pooling: Pooling,
+        max_len: usize,
+    ) -> Result<Self, Error> {
         let resolved = resolve_bi_name(repo);
-        let (onnx, tok) = fetch_model(resolved)?;
+        let (onnx, tok) = fetch_model_variant(resolved, onnx_variant)?;
         let session = build_session(&onnx)?;
         let needs_token_type_ids = session
             .inputs()
             .iter()
             .any(|i| i.name() == "token_type_ids");
-        let tokenizer = load_tokenizer(&tok)?;
+        let tokenizer = load_tokenizer_with_max(&tok, max_len)?;
         let inner = Arc::new(EncoderInner {
             session: Mutex::new(session),
             tokenizer,
             needs_token_type_ids,
         });
         let dim = probe_dim_bi(&inner)?;
-        Ok(Self { inner, dim })
+        Ok(Self {
+            inner,
+            dim,
+            pooling,
+            max_len,
+        })
+    }
+
+    #[must_use]
+    pub fn max_len(&self) -> usize {
+        self.max_len
     }
 
     #[must_use]
@@ -174,6 +249,99 @@ impl BiEncoder {
     pub fn encode(&self, text: &str) -> Result<Array1<f32>, Error> {
         let batch = self.encode_batch(&[text])?;
         Ok(batch.row(0).to_owned())
+    }
+
+    /// Late-chunking encode: pack a sequence of `turns` into one
+    /// long input (`[CLS] turn1 [SEP] turn2 [SEP] ... [SEP]`), run a
+    /// single forward pass, and mean-pool over each turn's own token
+    /// span. Returns `(turns.len(), dim)` L2-normalized.
+    ///
+    /// Each turn's embedding is computed in the *context of the whole
+    /// session*, which is the difference vs `encode_batch` — a yes/no
+    /// turn that has lost its question now picks up the question's
+    /// representation through self-attention.
+    ///
+    /// Forces mean pooling regardless of `self.pooling` because CLS
+    /// pooling is incompatible with per-turn span extraction (the
+    /// sequence has only one `[CLS]`).
+    ///
+    /// Returns an error if the packed sequence exceeds `max_len`. The
+    /// caller should handle long sessions by chunking into windows of
+    /// turns small enough to fit.
+    pub fn encode_session(&self, turns: &[&str]) -> Result<Array2<f32>, Error> {
+        if turns.is_empty() {
+            return Ok(Array2::<f32>::zeros((0, self.dim)));
+        }
+        // Tokenize each turn without special tokens so we have raw
+        // token IDs to splice into the packed sequence.
+        let per_turn: Vec<tokenizers::Encoding> = self
+            .inner
+            .tokenizer
+            .encode_batch(turns.iter().map(|s| (*s).to_owned()).collect(), false)
+            .map_err(|e| Error::Encoder(format!("tokenize turns: {e}")))?;
+        let cls_id = self
+            .inner
+            .tokenizer
+            .token_to_id("[CLS]")
+            .ok_or_else(|| Error::Encoder("tokenizer missing [CLS]".to_owned()))?;
+        let sep_id = self
+            .inner
+            .tokenizer
+            .token_to_id("[SEP]")
+            .ok_or_else(|| Error::Encoder("tokenizer missing [SEP]".to_owned()))?;
+
+        let mut input_ids: Vec<i64> = Vec::new();
+        input_ids.push(i64::from(cls_id));
+        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(turns.len());
+        for enc in &per_turn {
+            let start = input_ids.len();
+            for &id in enc.get_ids() {
+                input_ids.push(i64::from(id));
+            }
+            let end = input_ids.len();
+            spans.push((start, end));
+            input_ids.push(i64::from(sep_id));
+        }
+        let n = input_ids.len();
+        if n > self.max_len {
+            return Err(Error::Encoder(format!(
+                "session too long: {n} tokens > max_len {}",
+                self.max_len
+            )));
+        }
+        let mut ids_arr = Array2::<i64>::zeros((1, n));
+        let mask_arr = Array2::<i64>::ones((1, n));
+        let token_type_arr = Array2::<i64>::zeros((1, n));
+        for (i, &id) in input_ids.iter().enumerate() {
+            ids_arr[[0, i]] = id;
+        }
+
+        let value = run_inference(&self.inner, ids_arr, mask_arr, token_type_arr)?;
+        let last_hidden = value
+            .try_extract_array::<f32>()
+            .map_err(|e| Error::Encoder(format!("extract last_hidden_state: {e}")))?;
+        let last_hidden = last_hidden
+            .into_dimensionality::<ndarray::Ix3>()
+            .map_err(|e| Error::Encoder(format!("reshape last_hidden_state: {e}")))?;
+
+        let dim = last_hidden.shape()[2];
+        let mut out = Array2::<f32>::zeros((spans.len(), dim));
+        for (turn_idx, (start, end)) in spans.iter().enumerate() {
+            if start >= end {
+                continue;
+            }
+            let n_toks = (end - start) as f32;
+            for t in *start..*end {
+                let row = last_hidden.slice(ndarray::s![0, t, ..]);
+                for (k, v) in row.iter().enumerate() {
+                    out[[turn_idx, k]] += v;
+                }
+            }
+            for k in 0..dim {
+                out[[turn_idx, k]] /= n_toks;
+            }
+        }
+        Ok(l2_normalize_rows(out))
     }
 
     /// Encode a batch of texts. Returns `(N, dim)` L2-normalized.
@@ -200,7 +368,10 @@ impl BiEncoder {
         let last_hidden = last_hidden
             .into_dimensionality::<ndarray::Ix3>()
             .map_err(|e| Error::Encoder(format!("reshape last_hidden_state: {e}")))?;
-        let pooled = mean_pool(last_hidden.view(), &attention_mask, max_len);
+        let pooled = match self.pooling {
+            Pooling::Mean => mean_pool(last_hidden.view(), &attention_mask, max_len),
+            Pooling::Cls => cls_pool(last_hidden.view()),
+        };
         Ok(l2_normalize_rows(pooled))
     }
 }
@@ -346,6 +517,19 @@ fn run_inference(
         .next()
         .ok_or_else(|| Error::Encoder("session returned no outputs".to_owned()))?;
     Ok(value)
+}
+
+fn cls_pool(last_hidden: ndarray::ArrayView3<'_, f32>) -> Array2<f32> {
+    let n = last_hidden.shape()[0];
+    let dim = last_hidden.shape()[2];
+    let mut pooled = Array2::<f32>::zeros((n, dim));
+    for i in 0..n {
+        let row = last_hidden.slice(ndarray::s![i, 0, ..]);
+        for (k, v) in row.iter().enumerate() {
+            pooled[[i, k]] = *v;
+        }
+    }
+    pooled
 }
 
 fn mean_pool(

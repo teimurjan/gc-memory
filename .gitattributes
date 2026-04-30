@@ -13,8 +13,8 @@
 # Python wheels. Single rule covers everything.
 release_artifacts/lethe* filter=lfs diff=lfs merge=lfs -text
 
-# Treat the legacy Python implementation as vendored so GitHub
-# language stats reflect the active Rust port. The legacy/ tree
-# is the original Python codebase, kept around for the benchmark
-# harness and not part of the shipped product.
-legacy/** linguist-vendored=true
+# Treat the Python reference implementation as vendored so GitHub
+# language stats reflect the active Rust port. This tree is the
+# original Python codebase, kept around for the benchmark harness
+# and not part of the shipped product.
+research_playground/lethe_reference/** linguist-vendored=true

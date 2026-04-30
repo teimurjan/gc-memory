@@ -1,4 +1,4 @@
-//! Production memory store — port of `legacy/lethe/memory_store.py`.
+//! Production memory store — port of `research_playground/lethe_reference/lethe/memory_store.py`.
 //!
 //! Layers:
 //! * `MemoryDb` (DuckDB) for entry rows + clustered RIF persistence +

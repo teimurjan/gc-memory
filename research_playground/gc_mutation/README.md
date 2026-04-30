@@ -17,13 +17,13 @@ Archived research code from checkpoints 1-10 of the lethe research journey: the 
 
 ## Status
 
-None of this is reachable from `legacy/lethe.MemoryStore`. The research thread concluded that the GC mutation loop doesn't improve retrieval quality (see `RESEARCH_JOURNEY.md` checkpoints 1-10). The genuinely productive threads — RIF (checkpoints 11-13) and LLM enrichment (checkpoint 17) — live in `legacy/lethe/`.
+None of this is reachable from `lethe.MemoryStore` (the reference impl under `research_playground/lethe_reference/lethe/`). The research thread concluded that the GC mutation loop doesn't improve retrieval quality (see `RESEARCH_JOURNEY.md` checkpoints 1-10). The genuinely productive threads — RIF (checkpoints 11-13) and LLM enrichment (checkpoint 17) — live in `research_playground/lethe_reference/lethe/`.
 
 ## Running
 
-These modules depend on production primitives like `lethe.entry.MemoryEntry`. Make sure the repo is installed in editable mode:
+These modules depend on production primitives like `lethe.entry.MemoryEntry`. Make sure the reference impl is installed in editable mode:
 
 ```bash
-uv pip install -e .
-uv run python gc_mutation/run_experiment.py --help
+uv pip install -e research_playground/lethe_reference/
+uv run python research_playground/gc_mutation/run_experiment.py --help
 ```

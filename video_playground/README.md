@@ -24,7 +24,7 @@ indexes the small fixture under `data/`, runs the queries from
 are committed snapshots from the original Python data-collection
 pipeline (used by the published video). The Python collectors are no
 longer in the repo; reproduce headline numbers via the migration
-benchmarks at `migration_benchmarks/longmemeval.py --compare`.
+benchmarks at `research_playground/rust_migration/longmemeval.py --compare`.
 
 ## Layout
 

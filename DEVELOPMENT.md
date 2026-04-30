@@ -6,18 +6,18 @@
 # Rust toolchain (1.94+)
 rustup toolchain install stable
 
-# Python venv for the legacy library + parity bench
+# Python venv for the reference impl + parity bench
 uv venv --python 3.12
-uv pip install -e 'legacy/[dev]'
+uv pip install -e 'research_playground/lethe_reference/[dev]'
 ```
 
-The CLI is the Rust binary `lethe` (built from `crates/lethe-cli`). The Python package under `legacy/` is the original implementation, kept for the research trail and to back the parity bench. PyO3 bindings (`crates/lethe-py`) and napi-rs bindings (`crates/lethe-node`) are the supported language-binding paths going forward.
+The CLI is the Rust binary `lethe` (built from `crates/lethe-cli`). The Python package under `research_playground/lethe_reference/` is the original implementation, kept for the research trail and to back the parity bench. PyO3 bindings (`crates/lethe-py`) and napi-rs bindings (`crates/lethe-node`) are the supported language-binding paths going forward.
 
 ## Run tests
 
 ```bash
 cargo test --workspace
-cd legacy && uv run pytest tests/ -q
+cd research_playground/lethe_reference && uv run pytest tests/ -q
 ```
 
 Rust: 71 unit tests, sub-second (plus the CLI smoke + cross-impl npz tests). Python: 148 production + 8 PyO3 parity = 156, ~3 minutes (the PyO3 set loads ONNX models). No network, no API keys required.

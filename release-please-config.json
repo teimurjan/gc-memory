@@ -7,8 +7,8 @@
       "component": "lethe",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        "legacy/lethe/__init__.py",
-        "legacy/pyproject.toml",
+        "research_playground/lethe_reference/lethe/__init__.py",
+        "research_playground/lethe_reference/pyproject.toml",
         "crates/lethe-py/pyproject.toml",
         {
           "type": "toml",

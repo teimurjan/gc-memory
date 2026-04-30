@@ -1,14 +1,16 @@
 # Python ↔ Rust parity bench
 
-The migration-confidence ladder. Three suites, all 1-1 between Python
-and Rust: each script accepts `--impl python` or `--impl rust` and
-emits the same JSON shape; `--compare` runs both and writes a single
-markdown report under `migration_benchmarks/results/`.
+The migration-confidence ladder — proves the Rust port matches the
+Python reference implementation (under `research_playground/lethe_reference/`)
+on quality, components, and latency. Three suites, all 1-1 between
+Python and Rust: each script accepts `--impl python` or `--impl rust`
+and emits the same JSON shape; `--compare` runs both and writes a
+single markdown report under `research_playground/rust_migration/results/`.
 
 ## Layout
 
 ```
-migration_benchmarks/
+research_playground/rust_migration/
 ├── README.md
 ├── _lib.py            # shared utilities
 ├── prepare.py         # one-time data export (gitignored output)
@@ -29,27 +31,27 @@ One-time setup (writes `tmp_data/lme_rust/` — flat-binary mirror of the
 prepared LongMemEval data, gitignored):
 
 ```bash
-uv run python migration_benchmarks/prepare.py
+uv run python research_playground/rust_migration/prepare.py
 ```
 
 Run any suite in compare mode:
 
 ```bash
-./migration_benchmarks/longmemeval.py --compare    # quality: NDCG@10, Recall@10
-./migration_benchmarks/components.py --compare     # numerical diff per component
-./migration_benchmarks/latency.py --compare        # cold + warm timing
+./research_playground/rust_migration/longmemeval.py --compare    # quality: NDCG@10, Recall@10
+./research_playground/rust_migration/components.py --compare     # numerical diff per component
+./research_playground/rust_migration/latency.py --compare        # cold + warm timing
 ```
 
 Or single-impl, JSON to stdout:
 
 ```bash
-./migration_benchmarks/longmemeval.py --impl python
-./migration_benchmarks/longmemeval.py --impl rust
+./research_playground/rust_migration/longmemeval.py --impl python
+./research_playground/rust_migration/longmemeval.py --impl rust
 ```
 
-`migration_benchmarks/results/COMPARE_<SUITE>_<host>_<date>.md` is the only file
-written. Intermediate JSON outputs go through `tempfile` and are
-cleaned up on exit.
+`research_playground/rust_migration/results/COMPARE_<SUITE>_<host>_<date>.md`
+is the only file written. Intermediate JSON outputs go through `tempfile`
+and are cleaned up on exit.
 
 ## What each suite measures
 

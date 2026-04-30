@@ -10,9 +10,9 @@ Each sub-bench has a tolerance band; the suite passes only when every
 component does. When a single suite fails, the markdown report points
 at the offending component so you don't have to bisect by hand.
 
-Same CLI shape as `migration_benchmarks/longmemeval.py`:
+Same CLI shape as `research_playground/rust_migration/longmemeval.py`:
   --impl python|rust  → emit JSON for one component spec
-  --compare           → run both, write `migration_benchmarks/results/COMPARE_COMPONENTS_*.md`
+  --compare           → run both, write `research_playground/rust_migration/results/COMPARE_COMPONENTS_*.md`
 
 The same query / pair fixtures are used across both impls so the diff
 is apples-to-apples.
@@ -93,7 +93,7 @@ def fixture_pairs(n_pairs: int) -> list[tuple[str, str]]:
 def py_bm25_scores(queries: list[str]) -> list[list[float]]:
     from rank_bm25 import BM25Okapi  # noqa: PLC0415
 
-    sys.path.insert(0, str(REPO / "legacy"))
+    sys.path.insert(0, str(REPO / "research_playground" / "lethe_reference"))
     from lethe.vectors import tokenize_bm25  # noqa: PLC0415
 
     _qrels, corpus_content, _qtexts = load_lme_jsons()
@@ -123,7 +123,7 @@ def py_flat_ip(query_indices: list[int], k: int) -> list[list[tuple[str, float]]
 
 
 def py_xenc(pairs: list[tuple[str, str]]) -> list[float]:
-    sys.path.insert(0, str(REPO / "legacy"))
+    sys.path.insert(0, str(REPO / "research_playground" / "lethe_reference"))
     from lethe.encoders import OnnxCrossEncoder  # noqa: PLC0415
 
     xenc = OnnxCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
@@ -328,7 +328,7 @@ def main(argv: list[str]) -> int:
         sys.stderr.write("--impl and --compare are mutually exclusive\n")
         return 2
     if not LME_RUST.exists():
-        sys.stderr.write("error: run `uv run python migration_benchmarks/prepare.py` first.\n")
+        sys.stderr.write("error: run `uv run python research_playground/rust_migration/prepare.py` first.\n")
         return 2
 
     if args.impl == "python":

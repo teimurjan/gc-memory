@@ -319,7 +319,7 @@ Enriched 975 entries (first 1000 of the ~10k answer-relevant set), covering 15% 
 
 ### Checkpoint 18 — Bootstrap CIs, permutation tests, and NFCorpus replication
 
-Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-ran the checkpoint-13 benchmark with per-query NDCG arrays persisted (`legacy/benchmarks/run_rif_gap.py` patched to dump `rif_gap_per_query.json`), then computed 95% bootstrap percentile CIs (10k resamples) and two-sided paired permutation test p-values (10k permutations) via `legacy/benchmarks/bootstrap_rif_gap_ci.py`.
+Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-ran the checkpoint-13 benchmark with per-query NDCG arrays persisted (`research_playground/rif/run_gap.py` patched to dump `rif_gap_per_query.json`), then computed 95% bootstrap percentile CIs (10k resamples) and two-sided paired permutation test p-values (10k permutations) via `research_playground/rif/bootstrap_ci.py`.
 
 **LongMemEval S, 500-query eval, same 5000-step burn-in:**
 
@@ -353,7 +353,7 @@ Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-r
 
 **Conclusion:** the mechanism is workload-specific. It targets the chronic-false-positive pattern characteristic of a single user's accumulating long-term conversation memory, and actively hurts on ad-hoc retrieval where that pattern does not exist. The arXiv paper (`paper.tex`, §5.3) documents this scope explicitly; public write-ups (`writeup/post_v2.md`, `writeup/launch_posts.md`) reflect the narrower claim.
 
-Artifacts: `legacy/benchmarks/results/rif_gap_per_query.json`, `legacy/benchmarks/results/rif_gap_per_query_nfcorpus.json`, `legacy/benchmarks/results/rif_gap_ci.md`, `legacy/benchmarks/results/rif_gap_nfcorpus_ci.md`.
+Artifacts: `research_playground/rif/results/rif_gap_per_query.json`, `research_playground/rif/results/rif_gap_per_query_nfcorpus.json`, `research_playground/rif/results/rif_gap_ci.md`, `research_playground/rif/results/rif_gap_nfcorpus_ci.md`.
 
 ---
 
@@ -396,7 +396,7 @@ The 4.9× win on synthetic text inverts to a ~4× regression on real conversatio
 
 We did not complete the NDCG arm (killed at ~20% of corpus re-embed once the throughput inversion made the speed premise moot). The quality question is open, but there's no speed incentive to answer it on this workload.
 
-Reproducer: `legacy/benchmarks/run_int8.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_INT8.md`.
+Reproducer: `research_playground/int8/run.py`. Raw table: `research_playground/int8/results/BENCHMARKS_INT8.md`.
 
 **2. CoreML execution provider on Apple Silicon.** Hypothesis: route onnxruntime through the Neural Engine / Metal via `providers=["CoreMLExecutionProvider", "CPUExecutionProvider"]`.
 
@@ -430,7 +430,7 @@ LongMemEval S, 100-query random sample (seed 0), full production pipeline (BM25 
 
 `k_deep=60` is cheaper still but costs 1.1 pp NDCG, above the noise floor — rejected. If a user ever reports a query pattern where 100 is insufficient, the knob is exposed on the `MemoryStore` / `UnionStore` constructors.
 
-Reproducer: `legacy/benchmarks/run_deep_pass.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_DEEP_PASS.md`.
+Reproducer: `research_playground/deep_pass/run.py`. Raw table: `research_playground/deep_pass/results/BENCHMARKS_DEEP_PASS.md`.
 
 ### Implementation note: BM25 tokenizer (`lower().split()` → regex word-tokens)
 
@@ -450,7 +450,7 @@ Two non-obvious results:
 
 On the full 200-query headline benchmark the swap lifted the production pipeline from **0.3680 → 0.3817 NDCG@10** (BM25-only jumped 0.2420 → 0.3171). Bigger single-lever quality win than clustered-RIF on the same corpus, measured on the same eval sample. The lift is punctuation-only — the 200k conversational turns are heavy on trailing `?`, `.`, contractions, and hook-written session anchors that previously didn't tokenize cleanly.
 
-Reproducer: `legacy/benchmarks/run_bm25_tokenizer.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md`.
+Reproducer: `research_playground/bm25_tokenizer/run.py`. Raw table: `research_playground/bm25_tokenizer/results/BENCHMARKS_BM25_TOKENIZER.md`.
 
 #### Downstream effect on RIF: absolute gains up, relative gains halved
 
@@ -471,15 +471,134 @@ Two findings, both expected under a "better base leaves less to recover" mental 
 
 Significance testing (paired permutation, bootstrap CI) from checkpoint 18 was on the old tokenizer. The clustered-RIF claim is expected to survive re-testing (absolute effect size did not collapse), but that hasn't been re-verified.
 
-Reproducer: `legacy/benchmarks/run_rif_clustered.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_RIF_CLUSTERED.md`.
+Reproducer: `research_playground/rif/run_clustered.py`. Raw table: `research_playground/rif/results/BENCHMARKS_RIF_CLUSTERED.md`.
+
+---
+
+### Implementation note: reranker + bi-encoder ablation (no lever found at the model layer)
+
+After shipping the production Rust pipeline (`096c64f`, batched union rerank), we ran an evidence-driven sweep of the two model components — the cross-encoder and the bi-encoder — to test whether either is the limiter on conversational long memory. Both are commonly cited as the highest-ROI swap in 2025 RAG surveys (BEIR, MTEB-Retrieval). Neither is the lever here.
+
+LongMemEval S, 50-query subsample (matches full-eval direction within ±0.005 NDCG@10), production pipeline (BM25 + FAISS → RRF → cross-encoder rerank), `k_shallow=30`, `k_deep=100`. Bench harness: `crates/lethe-benchmark` with `--cross-encoder` and `--bi-encoder` flags.
+
+#### Cross-encoder shootout (bi-encoder fixed at MiniLM-L6)
+
+| Reranker | Params | `lethe_full` NDCG@10 | Δ NDCG | `lethe_full` R@10 | rerank time (50q) | Slowdown |
+|---|---|---|---|---|---|---|
+| **`Xenova/ms-marco-MiniLM-L-6-v2` (current)** | **22M** | **0.3762** | — | **0.5033** | 110s | 1.0× |
+| `Xenova/ms-marco-MiniLM-L-12-v2` | 33M | 0.3776 | +0.14pp | 0.5033 | 215s | 2.0× |
+| `jinaai/jina-reranker-v1-turbo-en` | 38M | 0.3755 | −0.07pp | 0.5000 | 138s | 1.25× |
+| `jinaai/jina-reranker-v2-base-multilingual` | 278M | 0.3011 | **−7.51pp** | 0.4439 | 752s | 6.8× |
+
+Findings:
+1. **MiniLM-L6 sits on the local Pareto frontier.** Bigger models cost more without delivering NDCG. This is the same shape as the RIF NFCorpus regression — "+10pt over MiniLM" claims in 2025 reranker leaderboards (mxbai-rerank-v2, jina-v2) are measured on BEIR/general IR, not on conversational chat memory. The mismatch is workload-specific.
+2. **Jina-v2-base-multilingual actively regresses by 7.5pp** at 6.8× the cost. The multilingual generalist appears to underperform the MS-MARCO-finetuned MiniLM specifically on English conversational content. We did not verify whether ONNX export numerics or tokenization formatting contribute, because the directional answer didn't change with sample size.
+3. **CPU latency scales roughly linearly with parameters** at this size class (~0.5× params per ms on M-series). Extrapolating to bge-reranker-v2-m3 (568M) → ~50s/query, mxbai-rerank-base-v2 (500M Qwen2.5) → ~40-60s/query. Disqualified for interactive use without GPU.
+
+#### Bi-encoder swap (cross-encoder fixed at MiniLM-L6)
+
+`Xenova/bge-small-en-v1.5` (33M, 384D, CLS pooling, int8 quantized for prep speed). Required new harness plumbing: `BiEncoder::from_repo_full(repo, onnx_variant, pooling)` for variant-and-pool selection, `cmd_prepare-embeddings` subcommand to re-encode the 199k-corpus into a parallel `lme_<sanitized>/` cache.
+
+| Config | MiniLM-L6 NDCG | BGE-small NDCG | Δ NDCG | MiniLM R@10 | BGE R@10 | Δ R@10 |
+|---|---|---|---|---|---|---|
+| `vector_only` | 0.158 | **0.191** | **+3.3pp** | 0.280 | 0.280 | 0.0pp |
+| `bm25_only` | 0.358 | 0.358 | 0.0pp | 0.431 | 0.431 | 0.0pp |
+| `hybrid_rrf` | 0.301 | **0.319** | **+1.7pp** | 0.440 | 0.450 | +1.0pp |
+| `vector_xenc` | 0.227 | **0.263** | **+3.6pp** | 0.290 | 0.370 | **+8.0pp** |
+| **`lethe_full`** | **0.376** | 0.368 | **−0.78pp** | 0.503 | **0.520** | **+1.7pp** |
+
+Findings:
+1. **BGE genuinely is a better embedder.** `vector_only` +3.3pp NDCG, `vector_xenc` +3.6pp NDCG / +8pp R@10. The MTEB-leaderboard delta propagates cleanly when dense is the only retrieval signal — same magnitude (+3-5pp NDCG@10) reported in BEIR.
+2. **The lift mostly washes out in `lethe_full`.** Production NDCG@10 essentially flat (−0.78pp), R@10 +1.7pp. The mechanism: lethe_full unions BM25(top-30) ∪ dense(top-30) → rerank, and on this corpus **bm25_only NDCG (0.358) is more than 2× vector_only (0.158)**. BM25 dominates the rerank pool; better dense delivers more relevant docs into the top-60 (R@10 up) but the cross-encoder, already saturating on what it can rank, can't reorder them above the BM25-supplied entries it was already picking well.
+3. **No per-query latency hit.** Bi-encoder runs once; +5-10ms vs MiniLM is invisible against the 100-300ms rerank. Index-time encoding is slower at 26 items/s int8 (raw `ort` Rust path), but writes are amortized — single new memory ≈ 40ms with BGE. The Rust prep is ~5-10× slower than fastembed on the same model — a tooling gap we'll close, not a model gap.
+4. **Anomaly: BGE's `vector_xenc` rerank time was 4× *faster* than MiniLM's** (51s vs 219s on 50 queries) despite identical cross-encoder. BGE's top-30 picks are systematically shorter chunks than MiniLM's, so the cross-encoder pads to a smaller `seq_len`. Doesn't show up in `lethe_full` because BM25 contributes the same long chunks to both unions.
+
+We did not run fp32 BGE — directional answer stable at int8, fp32 expected to add ~+0.5-1pp at most.
+
+#### Bigger conclusion (the actual finding)
+
+**On conversational long memory, BM25 is the load-bearing component. The cross-encoder and bi-encoder are downstream fitters, not the limiter.** Two days of model swaps put a hard ceiling on what either replacement can deliver in this stack:
+
+- The reranker is calibrated to MiniLM's MS-MARCO logit scale and to BM25-shaped candidate pools; bigger models don't improve precision enough to justify the cost.
+- The bi-encoder's MTEB-validated lift only converts to `lethe_full` NDCG when dense isn't already being shadowed by BM25 in the rerank pool.
+
+This refines what was tacit in checkpoint 8 (BM25 +76% over vector alone) and checkpoint 17 (enrichment is the largest single lever): the model layer isn't where the next pp lives. The next pp lives in **how we feed BM25** (multi-field signal, write-time enrichment) and **how candidates fuse into the rerank pool** (top-K balance, MMR-aware dedup).
+
+Reproducer: `crates/lethe-benchmark/src/main.rs` with `--cross-encoder` / `--bi-encoder` / `--pooling` / `--bi-encoder-onnx` / `--sample-limit` flags. Raw outputs: `/tmp/lethe_bench_{minilm_50,minilm12_50,jinav1turbo_50,jina_50,bge_50}.json`.
+
+---
+
+### Implementation note: multi-field BM25 ablation (regex entities don't substitute for semantic enrichment)
+
+The reranker + bi-encoder ablation above pointed at "enrich BM25's signal" as the remaining lever. The cheapest version of that idea was multi-field BM25 — index `body`, `entities`, and `title` separately and fuse via RRF — using regex extractors instead of LLM enrichment so we could test the structure without paying the Haiku cost. We tried two formulations; both regressed.
+
+Field extractors (`crates/lethe-core/src/fields.rs`): URL, CamelCase, acronym, snake_case, file/path, version, hex hash, backtick/double-quote spans for entities; first-non-empty-line truncated at 120 chars for title. Pure regex, no NLP model.
+
+LongMemEval S, 50-query subsample, MiniLM-L6 reranker + MiniLM-L6 dense, default `k=30/30` candidate pools, rerank top-60.
+
+| Config | NDCG@10 | R@10 | vs `lethe_full` |
+|--------|---------|------|------------------|
+| `bm25_only` (body) | **0.358** | 0.431 | — |
+| `bm25_boost_only` (body + 2×entities + title) | 0.343 | 0.417 | (BM25-alone) |
+| `lethe_full` (control: body BM25 + dense, dedup union, rerank) | **0.376** | **0.503** | baseline |
+| `lethe_multifield` (body / entities / title / dense → equal-weight RRF → rerank) | 0.340 | 0.453 | **−3.6pp NDCG / −5.0pp R@10** |
+| `lethe_field_boost` (single BM25 over body + 2×entities + title, then dense union, rerank) | 0.343 | 0.463 | **−3.3pp NDCG / −4.0pp R@10** |
+
+The decisive signal is `bm25_boost_only` 0.343 < `bm25_only` 0.358. The boost **degrades the BM25 index itself**, before the reranker sees anything. So the failure is upstream of fusion.
+
+Why each failed:
+
+1. **Naive concatenation breaks BM25 length normalization.** Repeating entity tokens lengthens the document; with `b=0.75`, BM25 penalizes body-term TF even though body content didn't change. Proper multi-field needs **BM25F** (per-field length norms, per-field weights), not concatenation. We did not implement BM25F — the negative result on the simpler form is enough to deprioritize the whole branch given alternative #2 below.
+2. **Equal-weight RRF over four sources dilutes the dominant body signal.** With entities populating only 37% of chunks (chat memory is mostly prose, not code), RRF promotes entity-only matches that body BM25 had correctly *deprioritized*. The reranker pool then carries displaced entity-driven candidates instead of body BM25's correct top-30.
+3. **Regex entities are the wrong vocabulary bridge.** Users query with natural-language phrasings ("how do I configure X"), not with the syntactic tokens regex extracts (`BiEncoder`, `4aae737`, `0.10.0`). Entity-token TF boost amplifies the wrong dimension.
+4. **First-line title is mostly noise.** For chat memory, first lines are sentence fragments — not topical labels — so the title BM25 has near-zero topical discrimination.
+
+The structural insight is what makes this informative even as a negative: **the kind of enrichment matters more than the field architecture.** What checkpoint 17 produces (gist, anticipated_queries) succeeds for the same reason regex entities fail — anticipated queries are written in the user's vocabulary, so they bridge the BM25 query–document gap directly. That's the +8.3pp covered-bucket result; it can't be cheaply substituted by regex.
+
+Reproducer: `crates/lethe-benchmark/src/main.rs::cmd_longmemeval` configs `lethe_multifield` and `lethe_field_boost`. Raw outputs: `/tmp/lethe_bench_{multifield,fieldboost}_50.json`. Field extractor unit tests in `crates/lethe-core/src/fields.rs`.
+
+**Decision (post-ablation):** the only remaining cheap-to-medium-effort retrieval-quality lever is **scaling LLM enrichment** (journal #1). All free-side levers — reranker swap, bi-encoder swap, pool sizing, multi-field BM25, field-boosted BM25 — have been tested and ruled out. The next experiment that has any chance of moving the production NDCG is committing to Haiku-side enrichment.
+
+---
+
+### Implementation note: late chunking with `nomic-embed-text-v1.5` on Modal GPU
+
+Hypothesis: per-turn embeddings lose conversational context; encoding the *whole session* once with a long-context model and mean-pooling per turn (Jina's "late chunking", 2024) gives each turn a context-aware embedding. Cited gain on long-document benchmarks: +1.5–6.5 NDCG@10 absolute.
+
+The local CPU path topped out at 0.4–1.5 sessions/sec (14 hr full prep) so we built a Modal app to run the encoding on a single L40S GPU: `research_playground/late_chunking_modal/prep_late.py`. Ran nomic-v1.5 fp16, 8192 max sequence, with Nomic's `search_document: ` / `search_query: ` task prefixes. **70 sessions/sec** on the GPU, **~3.5 min** to encode the full 199 509-turn corpus, ~$0.30 spend. **99.98% of sessions fit in one forward pass** (3 fallbacks out of 19 195). The Rust `prepare-embeddings-late` subcommand exists for parity but was not used for this run; production tooling stays Rust-CPU-only.
+
+| Config | MiniLM (std, control) | BGE-small (std, prior note) | **nomic-v1.5 LATE** | Δ vs control NDCG |
+|--------|------------------------|------------------------------|---------------------|--------------------|
+| `vector_only` | 0.158 | 0.191 | **0.110** | **−4.8pp** |
+| `bm25_only` | 0.358 | 0.358 | 0.358 | 0 (BM25 corpus unchanged) |
+| `hybrid_rrf` | 0.301 | 0.319 | 0.312 | +1.0pp |
+| `vector_xenc` | 0.227 | 0.263 | 0.197 | −3.0pp |
+| `lethe_full` NDCG | **0.376** | 0.368 | 0.365 | −1.2pp |
+| `lethe_full` R@10 | **0.503** | 0.520 | 0.483 | −2.0pp |
+
+50-query subsample, MiniLM-L6 reranker fixed, MiniLM-L6 control held at the rerun number.
+
+Findings:
+
+1. **Dense leg regressed by 4.8pp on `vector_only`.** Likely cause: the Python script prepends `search_document: ` to *each* turn before packing them into one session, so the model sees `[CLS] search_document: turn1 [SEP] search_document: turn2 [SEP] ...`. Nomic-v1.5 was trained with the prefix appearing **once per document**; multiple in-document prefixes are out-of-distribution and corrupt the per-turn pooled embeddings. The cleaner formulation is `[CLS] search_document: turn1 [SEP] turn2 [SEP] ...` (single prefix at session start, per-turn spans excluding the prefix tokens). Did not retry — the third finding below makes the fix moot for this corpus.
+2. **`lethe_full` is flat within 50q bootstrap noise.** ±2–3pp is the typical CI on 50 queries; the −1.2pp NDCG / −2.0pp R@10 deltas sit inside that band. Even with a totally different long-context dense embedder + session-level context awareness, the production metric does not move.
+3. **Third independent confirmation of the BM25-dominance pattern.** Cross-encoder swap, multi-reranker shootout, BGE bi-encoder swap, multi-field BM25, field-boosted BM25, and now late chunking all converge on the same ceiling for `lethe_full` on this corpus. Even fixing the per-turn prefix bug above would only recover the regressed dense leg back to control parity — it would not unblock the structural ceiling.
+
+The mechanism is straightforward: lethe_full unions BM25(top-30) ∪ dense(top-30) → rerank top-60. On LongMemEval-S, `bm25_only` (0.358) is **2.3× stronger than `vector_only`** (0.158); BM25's top-30 dominates the rerank pool, and dense improvements that don't *displace* a BM25-supplied entry the reranker is already ranking well don't show up in NDCG@10 / R@10. Late chunking improves *dense* quality (when the prefix bug is fixed); it does not move a BM25-rate-limited stack.
+
+The Modal harness (`research_playground/late_chunking_modal/`) is reusable: keeps the Modal volume hot, supports any HF long-context model via `--model_repo`, smoke-tests on 5 sessions for ~$0.02, full encode at ~$0.30. Worth keeping as the canonical "cheap GPU embed harness" for any future ablation that needs >CPU throughput. Output format is byte-for-byte compatible with the Rust bench's `--late` reader.
+
+Reproducer: `research_playground/late_chunking_modal/{prep_late.py, README.md}`. Raw output: `/tmp/lethe_bench_nomic_late_50.json`. Local mirror of the embeddings: `tmp_data/lme_nomic-ai_nomic-embed-text-v1.5_late/`.
+
+**Updated decision:** the BM25-dominance ceiling is now confirmed across **six** independent dense/rerank-side interventions. The only quality lever the data still leaves on the table is LLM enrichment (journal #1). Everything else either has been measured or is downstream of the same bottleneck.
 
 ---
 
 ## What's next
 
-Four open directions, in rough priority:
+Four open directions, in rough priority order. Reranker swap, bi-encoder swap, rerank-pool widening, **and regex multi-field BM25** all drop off the candidate list — the model-swap experiment, the prior `k_deep` re-calibration, and the multi-field BM25 ablation all confirm none of them is the limiter on this corpus. The remaining levers are either expensive (LLM enrichment) or scope-defining (cross-dataset replication, head-to-head benchmarks).
 
-1. **Scale enrichment to full answer-relevant coverage** (~$16, ~1h enrichment + 3.5h benchmark). Confirms covered-bucket numbers on the full eval. Gets us the clean +8pp NDCG story.
+1. **Scale enrichment to full answer-relevant coverage** (~$16, ~1h enrichment + 3.5h benchmark). Confirms covered-bucket numbers on the full eval. Gets us the clean +8pp NDCG story. Reinforced by the multi-field ablation: cheap regex substitutes for anticipated-queries don't carry the BM25 lift, so paying for actual LLM-generated enrichment is the only path that gives BM25 the right signal.
 2. **Replicate clustered RIF on a second long-term conversation memory benchmark** (e.g., LoCoMo, MSC, LongMemEval M). The NFCorpus negative result shows the mechanism doesn't transfer to ad-hoc IR; a second in-scope dataset would strengthen the conversational-memory claim independently.
 3. **Head-to-head against other memory tools on shared methodology.** Run our system under their setup (per-query ~50 sessions, recall@5), and/or theirs under ours. Honest comparison.
 4. **Move failure modes that haven't budged**: sibling_confusion (within-session discrimination) and stale_fact (temporal awareness). Candidate mechanisms: session-structured reranking, temporal-aware tie-breaking, explicit fact extraction with validity windows.

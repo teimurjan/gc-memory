@@ -1,4 +1,4 @@
-//! `lethe-tui` — ratatui counterpart to `legacy/lethe/tui.py`.
+//! `lethe-tui` — ratatui counterpart to `research_playground/lethe_reference/lethe/tui.py`.
 //!
 //! Library entry point: callers invoke [`run`] which owns the full
 //! terminal lifecycle (`enable_raw_mode`, `EnterAlternateScreen`,
