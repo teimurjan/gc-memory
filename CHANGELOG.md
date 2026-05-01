@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/teimurjan/lethe/compare/lethe-v0.10.0...lethe-v0.11.0) (2026-05-01)
+
+
+### Features
+
+* Allow multiple expand at once ([a47bcfb](https://github.com/teimurjan/lethe/commit/a47bcfb647aebb59ff9476efa9837d9a3d3d977f))
+
 ## [0.10.0](https://github.com/teimurjan/lethe/compare/lethe-v0.9.0...lethe-v0.10.0) (2026-04-29)
 
 
