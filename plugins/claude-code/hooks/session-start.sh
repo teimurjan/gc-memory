@@ -23,14 +23,20 @@ if [ ! -f "${TODAY_FILE}" ]; then
 fi
 
 # Collect context from the 2 most recent daily files (including today).
+# Strip per-turn anchors and session/turn headings — they're noise to the
+# model and the anchors are still in the markdown for skills that need to
+# drill via `lethe-claude-code transcript`.
 CONTEXT=""
 if ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
   # shellcheck disable=SC2012 — ls -t is the simplest way to sort by mtime.
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    name="$(basename "$f")"
-    tail_txt="$(tail -n 30 "$f" 2>/dev/null)"
-    CONTEXT+="\n## ${name}\n${tail_txt}"
+    day="$(basename "$f" .md)"
+    filtered="$(tail -n 30 "$f" 2>/dev/null \
+      | grep -vE '^<!-- session:|^### [0-9]{2}:[0-9]{2}$|^## Session [0-9]{2}:[0-9]{2}$|^# [0-9]{4}-[0-9]{2}-[0-9]{2}$' \
+      | awk 'NF || prev; {prev=NF}')"
+    [ -z "${filtered}" ] && continue
+    CONTEXT+=$'\n\n## '"${day}"$'\n'"${filtered}"
   done < <(ls -t "${LETHE_MEMORY_DIR}"/*.md 2>/dev/null | head -n 2)
 fi
 
@@ -45,7 +51,7 @@ fi
 # Emit JSON response with additionalContext. Keep it compact so the UI stays
 # readable; Claude Code joins additionalContext into the system prompt.
 if [ -n "${CONTEXT}" ]; then
-  CONTEXT_JSON="$(_json_encode_str "# Recent Memory${CONTEXT}")"
+  CONTEXT_JSON="$(_json_encode_str "# Recent memory${CONTEXT}")"
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":%s}}' \
     "${CONTEXT_JSON}"
 fi

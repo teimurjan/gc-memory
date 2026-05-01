@@ -21,9 +21,8 @@ lethe index                          # reindex .lethe/memory in the current repo
 lethe search "your query" --top-k 5
 lethe search "your query" --all      # cross-project (~/.lethe/projects.json)
 lethe projects list|add|remove|prune
-lethe expand <chunk-id>              # full markdown for one chunk
+lethe expand <chunk-id> [<chunk-id> ...]  # full markdown for one or more chunks
 lethe status                         # diagnostic JSON
-lethe migrate [--all]                # convert legacy embeddings.npz → DuckDB
 ```
 
 `lethe` with no subcommand opens the embedded TUI when stdout is a terminal;

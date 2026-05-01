@@ -13,7 +13,7 @@ git clone https://github.com/teimurjan/lethe /tmp/lethe   # or use a release tar
 bash /tmp/lethe/plugins/codex/install.sh --auto-config
 ```
 
-`install.sh` copies the hooks and skills to `~/.codex/lethe/` and (with `--auto-config`) appends a marked block to `~/.codex/config.toml`. Re-running the installer replaces the existing block, so updates are idempotent.
+`install.sh` copies the hooks to `~/.codex/lethe/hooks/` and the skills to `~/.codex/skills/{recall,recall-global}/` (auto-discovered by Codex alongside the built-in `~/.codex/skills/.system/` set — no config registration). With `--auto-config`, it also appends a marked block to `~/.codex/config.toml` wiring the hooks. Re-running the installer replaces the existing block and skill directories, so updates are idempotent.
 
 Without `--auto-config` the script prints the snippet for you to paste manually.
 

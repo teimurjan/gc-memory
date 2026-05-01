@@ -25,7 +25,7 @@ Find memories relevant to: $ARGUMENTS
 
 2. **Filter.** Skip results that obviously don't match the user's question. A weak cross-encoder score (< 0) usually means a miss.
 
-3. **Expand.** For the top 2–3 hits, run `lethe expand <id>` to see the full markdown section — the short `content` shown in search results is often a single chunk, so expanding clarifies context.
+3. **Expand.** For the top 2–3 hits, run `lethe expand <id1> <id2> <id3>` (multi-arg, single call) to see the full markdown sections. Output is plain text with `=== <id> ===` headers between chunks. The short `content` shown in search results is often a single chunk, so expanding clarifies context.
 
 4. **Drill further (only if critical).** If an expanded chunk contains a progressive-disclosure anchor of the form `<!-- session:<uuid> turn:<uuid> transcript:<path> -->` *and* the user's question genuinely needs the original dialogue (e.g. debugging a decision, tracing a subtle error), run:
 

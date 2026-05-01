@@ -1,7 +1,6 @@
 //! DuckDB persistence — port of `research_playground/lethe_reference/lethe/db.py`. Schema covers
 //! the entry rows + clustered RIF state + canonical embedding storage
-//! (the `entry_embeddings` table). Python-written stores keep their
-//! embeddings in `embeddings.npz` and need a one-shot `lethe migrate`.
+//! (the `entry_embeddings` table).
 //!
 //! Tables:
 //! * `entries(id, content, session_id, turn_idx, tier, affinity,
@@ -70,9 +69,7 @@ CREATE TABLE IF NOT EXISTS cluster_centroids (
 
 CREATE TABLE IF NOT EXISTS entry_embeddings (
     -- Canonical Rust-native embedding storage. Vectors are stored as
-    -- little-endian f32 BLOBs. The `lethe migrate` subcommand
-    -- backfills this table from a Python-written `embeddings.npz`
-    -- one time, then the npz is no longer consulted.
+    -- little-endian f32 BLOBs.
     entry_id TEXT PRIMARY KEY,
     dim INTEGER NOT NULL,
     vector BLOB NOT NULL
@@ -401,17 +398,6 @@ impl MemoryDb {
             out.push((eid, arr));
         }
         Ok(out)
-    }
-
-    /// True when the canonical Rust-side embedding table is empty —
-    /// used by `lethe migrate` and `MemoryStore::open` to decide
-    /// whether the user still needs to convert from `embeddings.npz`.
-    pub fn embeddings_empty(&self) -> Result<bool, crate::Error> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT 1 FROM entry_embeddings LIMIT 1")?;
-        let mut rows = stmt.query([])?;
-        Ok(rows.next()?.is_none())
     }
 
     pub fn load_cluster_centroids(&self) -> Result<Option<Array2<f32>>, crate::Error> {

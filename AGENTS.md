@@ -18,8 +18,7 @@ single Rust binary (`lethe`) plus PyPI / npm bindings.
   - `lethe-node` — napi-rs binding → npm `lethe`.
   - `lethe-claude-code` — Claude Code adapter binary (transcript parsing).
   - `lethe-benchmark` — internal parity bench helper (`publish = false`).
-- **DuckDB** for entry metadata + embedding BLOBs (single source of truth;
-  Python's `embeddings.npz` is migrated in via `lethe migrate`).
+- **DuckDB** for entry metadata + embedding BLOBs (single source of truth).
 - **ONNX Runtime** (via `ort`) for the bi-encoder + cross-encoder.
   Default models: `Xenova/all-MiniLM-L6-v2`, `Xenova/ms-marco-MiniLM-L-6-v2`.
 - **Python `research_playground/lethe_reference/`** kept for the research-journey trail: produces the
@@ -58,9 +57,8 @@ lethe index                              # reindex .lethe/memory
 lethe search "query" --top-k 5
 lethe search "query" --all --top-k 5     # all registered projects (DuckDB ATTACH)
 lethe projects list|add|remove|prune
-lethe expand <chunk-id>
+lethe expand <chunk-id> [<chunk-id> ...]
 lethe status
-lethe migrate [--all]                    # convert legacy embeddings.npz → DuckDB
 ```
 
 `tree -L 2 -I 'target|.venv|node_modules|tmp_*|results|.git|.lethe'` if

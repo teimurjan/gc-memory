@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Install the lethe Codex CLI plugin into ~/.codex/.
 #
-# Copies hook scripts and skills to ~/.codex/lethe/, then prints (or, with
-# --auto-config, appends) the config.toml snippet that wires the hooks.
+# Copies hook scripts to ~/.codex/lethe/hooks/ (referenced by absolute path
+# from config.toml) and skills to ~/.codex/skills/{recall,recall-global}/
+# (auto-discovered by Codex — no config registration needed).
 
 set -eu
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="${HOME}/.codex/lethe"
+SKILLS_DEST="${HOME}/.codex/skills"
 CONFIG_FILE="${HOME}/.codex/config.toml"
 AUTO_CONFIG=0
 
@@ -19,9 +21,10 @@ for arg in "$@"; do
       cat <<EOF
 Usage: $(basename "$0") [--auto-config]
 
-Copies hooks and skills to ${DEST}. Without --auto-config, prints the snippet
-to add to ${CONFIG_FILE}. With --auto-config, appends the snippet between
-sentinel markers (idempotent — re-runs replace the previous block).
+Copies hooks to ${DEST}/hooks and skills to ${SKILLS_DEST}/{recall,recall-global}.
+Without --auto-config, prints the snippet to add to ${CONFIG_FILE}. With
+--auto-config, appends the snippet between sentinel markers (idempotent —
+re-runs replace the previous block).
 EOF
       exit 0
       ;;
@@ -31,10 +34,20 @@ done
 
 mkdir -p "${DEST}"
 cp -R "${SCRIPT_DIR}/hooks" "${DEST}/"
-cp -R "${SCRIPT_DIR}/skills" "${DEST}/"
 chmod +x "${DEST}/hooks/"*.sh
 
-printf 'Installed lethe Codex hooks to %s\n' "${DEST}"
+# Skills go to ~/.codex/skills/<name>/ (auto-discovered alongside the
+# built-in `~/.codex/skills/.system/` set). Replace cleanly on re-run.
+mkdir -p "${SKILLS_DEST}"
+rm -rf "${SKILLS_DEST}/recall" "${SKILLS_DEST}/recall-global"
+cp -R "${SCRIPT_DIR}/skills/recall" "${SKILLS_DEST}/"
+cp -R "${SCRIPT_DIR}/skills/recall-global" "${SKILLS_DEST}/"
+
+# Clean up the pre-0.11 skills location used by older installs.
+rm -rf "${DEST}/skills"
+
+printf 'Installed lethe Codex hooks to %s\n' "${DEST}/hooks"
+printf 'Installed lethe Codex skills to %s/{recall,recall-global}\n' "${SKILLS_DEST}"
 
 SNIPPET=$(cat <<EOF
 # >>> lethe codex plugin >>>
@@ -58,12 +71,6 @@ timeout = 10
 type = "command"
 command = "bash ${DEST}/hooks/stop.sh"
 timeout = 120
-
-[[skills.config]]
-path = "${DEST}/skills/recall"
-
-[[skills.config]]
-path = "${DEST}/skills/recall-global"
 # <<< lethe codex plugin <<<
 EOF
 )

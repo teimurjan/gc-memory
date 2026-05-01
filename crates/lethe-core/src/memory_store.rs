@@ -159,9 +159,7 @@ impl MemoryStore {
 
         // Hydrate from disk. Embeddings are stored as DuckDB BLOBs in
         // the `entry_embeddings` table — Rust-native, no dependence on
-        // numpy semantics. Stores written by the legacy Python impl
-        // keep their embeddings in `embeddings.npz` and need a one-shot
-        // conversion via `lethe migrate`.
+        // numpy semantics.
         let (rows, emb_rows, suppression_state, centroids) = {
             let g = db.lock().unwrap();
             let rows = g.load_all_entries()?;
@@ -184,17 +182,6 @@ impl MemoryStore {
             (rows, emb_rows, state_in, centroids)
         };
         let emb_map: HashMap<String, Array1<f32>> = emb_rows.into_iter().collect();
-        // Detect an unmigrated Python store: rows present, embeddings
-        // table empty, but `embeddings.npz` exists. Don't read the npz;
-        // tell the user how to convert it.
-        if !rows.is_empty() && emb_map.is_empty() && path.join("embeddings.npz").exists() {
-            eprintln!(
-                "[lethe] {} entries but no Rust-side embeddings; this index was \
-                 written by the legacy Python implementation. Run `lethe migrate` \
-                 to convert `embeddings.npz` into the DuckDB store.",
-                rows.len()
-            );
-        }
         for r in rows {
             let Some(emb) = emb_map.get(&r.id) else {
                 continue;

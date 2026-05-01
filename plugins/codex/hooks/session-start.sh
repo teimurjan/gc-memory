@@ -23,14 +23,20 @@ fi
 CONTEXT=""
 if ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
   # shellcheck disable=SC2012
+  # Strip per-turn anchors and session/turn headings — they're noise to the
+  # model and the anchors are still in the markdown for skills that need to
+  # drill via `lethe-codex transcript`.
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    name="$(basename "$f")"
-    tail_txt="$(tail -n 30 "$f" 2>/dev/null)"
+    day="$(basename "$f" .md)"
+    filtered="$(tail -n 30 "$f" 2>/dev/null \
+      | grep -vE '^<!-- session:|^### [0-9]{2}:[0-9]{2}$|^## Session [0-9]{2}:[0-9]{2}$|^# [0-9]{4}-[0-9]{2}-[0-9]{2}$' \
+      | awk 'NF || prev; {prev=NF}')"
+    [ -z "${filtered}" ] && continue
     # Use real newlines (not "\n" literals — those would be JSON-escaped to
     # `\\n` by _json_encode_str and the agent would see a backslash-n token
     # instead of a line break).
-    printf -v CONTEXT '%s\n## %s\n%s' "${CONTEXT}" "${name}" "${tail_txt}"
+    printf -v CONTEXT '%s\n\n## %s\n%s' "${CONTEXT}" "${day}" "${filtered}"
   done < <(ls -t "${LETHE_MEMORY_DIR}"/*.md 2>/dev/null | head -n 2)
 fi
 
@@ -40,7 +46,7 @@ if [ -n "${LETHE_CLI}" ]; then
 fi
 
 if [ -n "${CONTEXT}" ]; then
-  CTX_JSON="$(_json_encode_str "# Recent Memory${CONTEXT}")"
+  CTX_JSON="$(_json_encode_str "# Recent memory${CONTEXT}")"
   # `hookSpecificOutput.additionalContext` injects into the model's context
   # window. `systemMessage` only renders as a UI banner — using it for the
   # actual memory payload would make the recall invisible to Codex.

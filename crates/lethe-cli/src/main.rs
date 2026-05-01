@@ -59,8 +59,11 @@ enum Cmd {
         #[arg(long)]
         projects: Option<String>,
     },
-    /// Print the full markdown section for a chunk id.
-    Expand { chunk_id: String },
+    /// Print the full markdown section for one or more chunk ids.
+    Expand {
+        #[arg(num_args = 1.., required = true)]
+        chunk_ids: Vec<String>,
+    },
     /// Print diagnostic JSON for the store.
     Status {
         #[arg(long)]
@@ -90,14 +93,6 @@ enum Cmd {
     Projects {
         #[command(subcommand)]
         action: ProjectsCmd,
-    },
-    /// Convert a legacy Python `embeddings.npz` into the Rust DuckDB store.
-    Migrate {
-        /// Migrate every registered project (~/.lethe/projects.json).
-        #[arg(long)]
-        all: bool,
-        #[arg(long)]
-        json_output: bool,
     },
     /// Interactive TUI. Implicit when `lethe` is run with no args in a terminal.
     Tui,
@@ -176,7 +171,7 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 commands::search::run_local(root, &query, top_k, json_output)
             }
         }
-        Cmd::Expand { chunk_id } => commands::expand::run(root, &chunk_id),
+        Cmd::Expand { chunk_ids } => commands::expand::run(root, &chunk_ids),
         Cmd::Status { json_output: _ } => commands::status::run(root),
         Cmd::Config { action, key, value } => {
             commands::config::run(root, &action, key.as_deref(), value.as_deref())
@@ -189,7 +184,6 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             Ok(2)
         }
         Cmd::Projects { action } => commands::projects::run(action),
-        Cmd::Migrate { all, json_output } => commands::migrate::run(root, all, json_output),
         Cmd::Tui => commands::tui::run(),
     }
 }
