@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/teimurjan/lethe/compare/lethe-v0.11.0...lethe-v0.12.0) (2026-05-01)
+
+
+### Features
+
+* Add `lethe seed` for history backfill ([dc9b263](https://github.com/teimurjan/lethe/commit/dc9b263adbecdcbf459fd064681e963cbe498845))
+
 ## [0.11.0](https://github.com/teimurjan/lethe/compare/lethe-v0.10.0...lethe-v0.11.0) (2026-05-01)
 
 
