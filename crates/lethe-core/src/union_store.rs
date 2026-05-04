@@ -11,10 +11,10 @@
 //! `MemoryStore` per project in read-only mode (no add/save), call
 //! retrieve, then merge across projects via a per-project RRF.
 //!
-//! Read-only here means: we never call `save()` and we never call
-//! `add()`. The per-project DuckDB connections are still opened with
-//! write intent (DuckDB's Rust crate can't reliably attach read-only
-//! across versions), but we strictly avoid mutation.
+//! Each per-project DuckDB is opened with `AccessMode::ReadOnly`, so
+//! many `lethe search` / `recall-global` invocations can share the
+//! same index files concurrently — DuckDB allows one writer xor many
+//! readers per file. The stop-hook ingest path keeps its writer.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -68,8 +68,9 @@ impl UnionStore {
         projects: Vec<ProjectEntry>,
         bi_encoder: Option<Arc<BiEncoder>>,
         cross_encoder: Option<Arc<CrossEncoder>>,
-        config: StoreConfig,
+        mut config: StoreConfig,
     ) -> Self {
+        config.read_only = true;
         let handles: Vec<UnionProject> = projects
             .into_par_iter()
             .filter_map(|entry| {

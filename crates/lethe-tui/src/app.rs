@@ -297,7 +297,7 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
             if !db_path.exists() {
                 continue;
             }
-            let count = MemoryDb::open(&db_path)
+            let count = MemoryDb::open_with_mode(&db_path, true)
                 .and_then(|db| db.count())
                 .map(|c| c.max(0) as usize)
                 .unwrap_or(0);

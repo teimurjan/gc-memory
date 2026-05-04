@@ -94,6 +94,12 @@ impl WorkerState {
     }
 
     fn config_with_dim(dim: usize) -> StoreConfig {
+        // The TUI is a long-running interactive UI: opening read-only
+        // means it never holds the writer lock, so hooks (`lethe index`
+        // on session end) and parallel CLI searches can keep working
+        // while the TUI is open. Trade-off: retrieval inside the TUI
+        // doesn't bump RIF state on disk — same trade-off as the CLI
+        // `--read-only` flag.
         StoreConfig {
             dim,
             rif: RifConfig {
@@ -101,6 +107,7 @@ impl WorkerState {
                 use_rank_gap: true,
                 ..RifConfig::default()
             },
+            read_only: true,
             ..StoreConfig::default()
         }
     }

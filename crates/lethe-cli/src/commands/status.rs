@@ -35,7 +35,7 @@ pub fn run(root: Option<&str>) -> Result<i32> {
         println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(0);
     }
-    let db = MemoryDb::open(paths.index().join("lethe.duckdb"))?;
+    let db = MemoryDb::open_with_mode(paths.index().join("lethe.duckdb"), true)?;
     let rows = db.load_all_entries()?;
     let total_entries = rows.len() as i64;
     let mut tiers: BTreeMap<String, i64> = BTreeMap::new();
