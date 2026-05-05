@@ -324,45 +324,57 @@ fn spawn_rif_poller(projects: Vec<ProjectEntry>) -> mpsc::Receiver<RifActivity> 
     const PER_PROJECT_LIMIT: usize = 8;
     const TOTAL_LIMIT: usize = 8;
     let (tx, rx) = mpsc::channel();
-    thread::spawn(move || loop {
-        let mut rows: Vec<RifActiveRow> = Vec::new();
-        for p in &projects {
-            let db_path = p.root.join(".lethe").join("index").join("lethe.duckdb");
-            if !db_path.exists() {
-                continue;
-            }
-            let Ok(db) = MemoryDb::open_with_mode(&db_path, true) else {
-                continue;
-            };
-            let Ok(active) = db.top_active_entries(PER_PROJECT_LIMIT) else {
-                continue;
-            };
-            for ActiveEntry {
-                content,
-                suppression,
-                step,
-                ..
-            } in active
-            {
-                rows.push(RifActiveRow {
-                    project_slug: p.slug.clone(),
+    thread::spawn(move || {
+        // One cached read-only handle per project — reused across
+        // poll cycles so we don't churn DuckDB file handles every 3s.
+        // Dropped (and reopened next tick) on any error or when the
+        // file disappears (project deleted / not yet indexed).
+        let mut handles: Vec<Option<MemoryDb>> = (0..projects.len()).map(|_| None).collect();
+        loop {
+            let mut rows: Vec<RifActiveRow> = Vec::new();
+            for (i, p) in projects.iter().enumerate() {
+                let db_path = p.root.join(".lethe").join("index").join("lethe.duckdb");
+                if !db_path.exists() {
+                    handles[i] = None;
+                    continue;
+                }
+                if handles[i].is_none() {
+                    handles[i] = MemoryDb::open_with_mode(&db_path, true).ok();
+                }
+                let Some(db) = handles[i].as_ref() else {
+                    continue;
+                };
+                let Ok(active) = db.top_active_entries(PER_PROJECT_LIMIT) else {
+                    handles[i] = None;
+                    continue;
+                };
+                for ActiveEntry {
                     content,
                     suppression,
                     step,
-                });
+                    ..
+                } in active
+                {
+                    rows.push(RifActiveRow {
+                        project_slug: p.slug.clone(),
+                        content,
+                        suppression,
+                        step,
+                    });
+                }
             }
+            rows.sort_by(|a, b| {
+                b.suppression
+                    .partial_cmp(&a.suppression)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| b.step.cmp(&a.step))
+            });
+            rows.truncate(TOTAL_LIMIT);
+            if tx.send(RifActivity { rows }).is_err() {
+                return;
+            }
+            thread::sleep(POLL_EVERY);
         }
-        rows.sort_by(|a, b| {
-            b.suppression
-                .partial_cmp(&a.suppression)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.step.cmp(&a.step))
-        });
-        rows.truncate(TOTAL_LIMIT);
-        if tx.send(RifActivity { rows }).is_err() {
-            return;
-        }
-        thread::sleep(POLL_EVERY);
     });
     rx
 }

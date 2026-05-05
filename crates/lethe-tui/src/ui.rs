@@ -214,14 +214,18 @@ fn draw_rif(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn rif_line(r: &crate::app::RifActiveRow, interior: usize) -> Line<'_> {
-    // "<score 4> [slug≤8] " prefix; slug truncated to keep the line tight.
+    // "<score> [<slug≤8>] <snippet>" — measure score and slug widths
+    // from their actual formatted strings so unusual values (e.g.
+    // "12.34", "-1.00") don't overflow snippet_room.
+    let score = format!("{:.2}", r.suppression);
     let slug = truncate(&r.project_slug, 8);
-    let prefix_w = 4 + 1 + 1 + slug.chars().count() + 1 + 1;
+    // score + " " + "[" + slug + "] " + " "  →  score + slug + 4
+    let prefix_w = score.chars().count() + slug.chars().count() + 4;
     let snippet_room = interior.saturating_sub(prefix_w).max(8);
     let snip = snippet(&r.content, snippet_room);
     Line::from(vec![
         Span::styled(
-            format!("{:.2}", r.suppression),
+            score,
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),

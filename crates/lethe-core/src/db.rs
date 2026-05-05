@@ -312,16 +312,24 @@ impl MemoryDb {
     /// falls back to `entries.suppression` (global RIF). Reads only —
     /// safe for concurrent read-only callers.
     pub fn top_active_entries(&self, limit: usize) -> Result<Vec<ActiveEntry>, crate::Error> {
+        // Pick the SINGLE highest-suppression row per entry from
+        // cluster_suppression so `s` and `step` come from the same
+        // record (a per-column MAX could pair an unrelated step with
+        // the score).
         let mut stmt = self.conn.prepare(
             "SELECT e.id, e.content, \
-                    COALESCE(c.s, e.suppression) AS active, \
-                    COALESCE(c.step, e.last_retrieved_step) AS step \
+                    COALESCE(c.suppression_score, e.suppression) AS active, \
+                    COALESCE(c.step_updated, e.last_retrieved_step) AS step \
              FROM entries e \
              LEFT JOIN ( \
-                 SELECT entry_id, MAX(suppression_score) AS s, MAX(step_updated) AS step \
-                 FROM cluster_suppression GROUP BY entry_id \
+                 SELECT entry_id, suppression_score, step_updated \
+                 FROM cluster_suppression \
+                 QUALIFY ROW_NUMBER() OVER ( \
+                     PARTITION BY entry_id \
+                     ORDER BY suppression_score DESC, step_updated DESC \
+                 ) = 1 \
              ) c ON c.entry_id = e.id \
-             WHERE COALESCE(c.s, e.suppression) > 0 \
+             WHERE COALESCE(c.suppression_score, e.suppression) > 0 \
              ORDER BY active DESC, step DESC \
              LIMIT ?",
         )?;
